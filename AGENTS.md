@@ -108,6 +108,18 @@ Multi-column embeddings are averaged into a combined vector. The wizard computes
 - zvec uses file locks -- cannot open same collection twice read-write
 - Install via `pip install "index-numerorum[vec]"` (optional dependency)
 
+## Security
+
+- **Embedding columns stripped** from all xlsx output (cli.py embed command)
+- **`np.load(allow_pickle=False)`** enforced in store.py
+- **Atomic file writes** in store.py sidecar files (write-to-tmp + os.replace)
+- **Formula injection sanitization** in io.py write_xlsx (prefixes `=`, `+`, `-`, `@`, `\t`, `\r` with `'`)
+- **Sensitive values redacted** from error messages (neighbors.py)
+- **HF telemetry disabled** via `HF_HUB_DISABLE_TELEMETRY=1` in embed.py
+- **Symlink safety check** before rmtree in models --remove
+- **GitHub Actions hardened**: SHA-pinned actions, `permissions: contents: read`, `persist-credentials: false`
+- **.gitignore** covers `input/`, `output/`, `demo_output/`, `*.npy`, `*.npz`
+
 ## Commit Style
 
 Short, imperative: "Add wizard mode with multi-model column detection"

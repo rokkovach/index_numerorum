@@ -54,21 +54,17 @@ def compare_items(
     try:
         idx_a = keys.index(item_a)
     except ValueError:
-        similar = [k for k in keys if item_a.lower() in k.lower() or k.lower() in item_a.lower()][
-            :5
-        ]
         raise ValueError(
-            f"'{item_a}' not found in column '{key_column}'. Similar values: {similar}"
+            f"'{item_a}' not found in column '{key_column}'. "
+            f"Check that the value exists in the data."
         ) from None
 
     try:
         idx_b = keys.index(item_b)
     except ValueError:
-        similar = [k for k in keys if item_b.lower() in k.lower() or k.lower() in item_b.lower()][
-            :5
-        ]
         raise ValueError(
-            f"'{item_b}' not found in column '{key_column}'. Similar values: {similar}"
+            f"'{item_b}' not found in column '{key_column}'. "
+            f"Check that the value exists in the data."
         ) from None
 
     vec_a = embeddings[idx_a]

@@ -23,6 +23,7 @@ from .config import (
     DEFAULT_METRIC,
     DEFAULT_MODEL,
     DEFAULT_TOP_K,
+    EMBEDDING_COLUMN_PREFIX,
     MODEL_REGISTRY,
     resolve_model,
 )
@@ -211,7 +212,8 @@ def embed(
         "input_file": input.name,
         "input_rows": str(len(df)),
     }
-    write_xlsx(df, output_path, metadata=metadata, overwrite=True)
+    df_clean = df.drop(columns=[c for c in df.columns if c.startswith(EMBEDDING_COLUMN_PREFIX)])
+    write_xlsx(df_clean, output_path, metadata=metadata, overwrite=True)
 
     console.print(
         Panel(
@@ -553,6 +555,15 @@ def _remove_model(shortcut_or_id: str) -> None:
                 border_style="yellow",
             )
         )
+        return
+
+    if model_path.is_symlink():
+        _handle_error("Refusing to remove a symlink.", "This may be a security issue.")
+        return
+    resolved = model_path.resolve()
+    cache_resolved = cache_dir.resolve()
+    if not str(resolved).startswith(str(cache_resolved)):
+        _handle_error("Refusing to remove path outside cache directory.")
         return
 
     size_mb = sum(f.stat().st_size for f in model_path.rglob("*") if f.is_file()) / (1024 * 1024)

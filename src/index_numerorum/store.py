@@ -9,6 +9,13 @@ import pandas as pd
 from .config import DEFAULT_DECIMALS
 from .similarity import pairwise_cosine
 
+
+def _atomic_write_json(path: Path, data: object) -> None:
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data))
+    tmp.replace(path)
+
+
 try:
     import zvec
 except ImportError:
@@ -73,7 +80,7 @@ class VectorStore:
             self._keys = []
         emb_path = self.path / "_embeddings.npy"
         if emb_path.exists():
-            self._embeddings: np.ndarray = np.load(str(emb_path))
+            self._embeddings: np.ndarray = np.load(str(emb_path), allow_pickle=False)
         else:
             dims = self._schema_meta.get("dimensions", 0)
             self._embeddings = np.empty((0, dims), dtype=np.float32)
@@ -109,9 +116,9 @@ class VectorStore:
             "key_column": key_column,
             "embed_columns": embed_columns,
         }
-        (path / "_meta.json").write_text(json.dumps(meta))
-        (path / "_keys.json").write_text(json.dumps([]))
-        np.save(str(path / "_embeddings.npy"), np.empty((0, dimensions), dtype=np.float32))
+        _atomic_write_json(path / "_meta.json", meta)
+        _atomic_write_json(path / "_keys.json", [])
+        np.save(str(path / "_embeddings"), np.empty((0, dimensions), dtype=np.float32))
         store = cls.__new__(cls)
         store.path = path
         store._collection = collection
@@ -161,12 +168,14 @@ class VectorStore:
             )
         self._collection.insert(docs)
         self._keys.extend(key_values)
-        (self.path / "_keys.json").write_text(json.dumps(self._keys))
+        _atomic_write_json(self.path / "_keys.json", self._keys)
         if self._embeddings.shape[0] == 0:
             self._embeddings = np.array(embeddings, dtype=np.float32)
         else:
             self._embeddings = np.vstack([self._embeddings, embeddings]).astype(np.float32)
-        np.save(str(self.path / "_embeddings.npy"), self._embeddings)
+        tmp = self.path / "_embeddings.tmp"
+        np.save(str(tmp), self._embeddings)
+        (self.path / "_embeddings.tmp.npy").replace(self.path / "_embeddings.npy")
         return len(docs)
 
     def query(

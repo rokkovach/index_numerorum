@@ -10,6 +10,16 @@ import pandas as pd
 
 from .config import EMBEDDING_COLUMN_PREFIX, METADATA_SHEET
 
+_DANGEROUS_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sanitize_formula_injection(value: object) -> object:
+    if isinstance(value, str) and value:
+        for prefix in _DANGEROUS_PREFIXES:
+            if value.startswith(prefix):
+                return "'" + value
+    return value
+
 
 def read_xlsx(path: Path) -> pd.DataFrame:
     path = Path(path)
@@ -32,11 +42,13 @@ def write_xlsx(
     path = Path(path)
     if path.exists() and not overwrite:
         raise FileExistsError(f"File already exists: {path}. Use overwrite=True to replace it.")
+    safe_df = df.map(_sanitize_formula_injection)
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="data", index=False)
+        safe_df.to_excel(writer, sheet_name="data", index=False)
         if metadata:
+            safe_meta = {k: _sanitize_formula_injection(v) for k, v in metadata.items()}
             meta_df = pd.DataFrame(
-                {"Parameter": list(metadata.keys()), "Value": list(metadata.values())}
+                {"Parameter": list(safe_meta.keys()), "Value": list(safe_meta.values())}
             )
             meta_df.to_excel(writer, sheet_name=METADATA_SHEET, index=False)
     wb = openpyxl.load_workbook(path)

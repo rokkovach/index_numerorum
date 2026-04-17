@@ -3,11 +3,14 @@ from __future__ import annotations
 import contextlib
 import io
 import logging
+import os
 import warnings
 from collections.abc import Callable
 
 import numpy as np
 import pandas as pd
+
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 from sentence_transformers import SentenceTransformer
 
 from .config import DEFAULT_BATCH_SIZE, EMBEDDING_COLUMN_PREFIX, ModelInfo, resolve_model
