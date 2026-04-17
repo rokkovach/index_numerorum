@@ -46,7 +46,62 @@ MODEL_REGISTRY: dict[str, ModelInfo] = {
         description="Well-tested",
         shortcut="e5",
     ),
+    "address": ModelInfo(
+        id="pawan2411/address-emnet",
+        dim=768,
+        size_mb=420,
+        description="Address matching & dedup",
+        shortcut="address",
+    ),
+    "entity": ModelInfo(
+        id="themelder/arctic-embed-xs-entity-resolution",
+        dim=384,
+        size_mb=90,
+        description="Company names, entity resolution",
+        shortcut="entity",
+    ),
 }
+
+DEFAULT_DECIMALS: int = 2
+
+COLUMN_MODEL_KEYWORDS: dict[str, list[str]] = {
+    "address": [
+        "address",
+        "addr",
+        "street",
+        "city",
+        "state",
+        "zip",
+        "postal",
+        "location",
+        "country",
+        "region",
+    ],
+    "entity": [
+        "company",
+        "vendor",
+        "supplier",
+        "customer",
+        "client",
+        "organization",
+        "org",
+        "employer",
+        "counterparty",
+        "partner",
+        "institution",
+        "firm",
+    ],
+}
+
+
+def suggest_model_for_column(column_name: str) -> str:
+    lower = column_name.lower()
+    for model_shortcut, keywords in COLUMN_MODEL_KEYWORDS.items():
+        for kw in keywords:
+            if kw in lower:
+                return model_shortcut
+    return DEFAULT_MODEL
+
 
 METRICS: dict[str, dict[str, object]] = {
     "cosine": {"sort_ascending": False, "range": "[-1, 1]"},

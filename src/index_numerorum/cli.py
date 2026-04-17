@@ -19,6 +19,7 @@ from . import __version__
 from .config import (
     COMPOSITE_KEY_COLUMN,
     DEFAULT_BATCH_SIZE,
+    DEFAULT_DECIMALS,
     DEFAULT_METRIC,
     DEFAULT_MODEL,
     DEFAULT_TOP_K,
@@ -67,9 +68,10 @@ EMBED_HELP = "Generate embeddings for text columns"
 NEIGHBORS_HELP = "Find nearest neighbors for every row"
 COMPARE_HELP = "Compare two specific records side-by-side"
 COMPOSE_HELP = "Build a composite key from multiple columns"
-MODELS_HELP = "List or download embedding models"
+MODELS_HELP = "List, download, or remove embedding models"
 DEMO_HELP = "Run a guided demo with sample data"
 DOCTOR_HELP = "Check your system environment"
+RUN_HELP = "Run the guided wizard (default when no command given)"
 
 EMBED_EPILOG = (
     "\n[bold]Examples:[/bold]\n\n"
@@ -108,24 +110,49 @@ MODELS_EPILOG = (
     "[dim]# List all models[/dim]\n"
     "  index-numerorum models\n\n"
     "[dim]# Download a model for offline use[/dim]\n"
-    "  index-numerorum models -d bge-large\n"
+    "  index-numerorum models -d bge-large\n\n"
+    "[dim]# Remove a cached model[/dim]\n"
+    "  index-numerorum models --remove mini\n"
 )
 
 app = typer.Typer(
     name="index-numerorum",
     help="Index Numerorum -- local word embedding & similarity toolkit",
     rich_markup_mode="rich",
-    no_args_is_help=True,
+    no_args_is_help=False,
 )
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main(
+    ctx: typer.Context,
     version: bool | None = typer.Option(
         None, "--version", "-v", help="Show version", callback=_version_callback, is_eager=True
     ),
+    quick: bool = typer.Option(False, "--quick", "-q", help="Quick mode: auto-detect settings"),
+    file: Path | None = typer.Option(None, "--file", "-f", help="Skip file scan, use this file"),
+    decimals: int = typer.Option(
+        DEFAULT_DECIMALS, "--decimals", "-d", help="Decimal places for scores"
+    ),
 ) -> None:
-    pass
+    if ctx.invoked_subcommand is not None:
+        return
+    from .wizard import run_wizard
+
+    run_wizard(console, quick=quick, file_override=file, decimals=decimals)
+
+
+@app.command(help=RUN_HELP)
+def run(
+    quick: bool = typer.Option(False, "--quick", "-q", help="Auto-detect settings"),
+    file: Path | None = typer.Option(None, "--file", "-f", help="Skip file scan"),
+    decimals: int = typer.Option(
+        DEFAULT_DECIMALS, "--decimals", "-d", help="Decimal places for scores"
+    ),
+) -> None:
+    from .wizard import run_wizard
+
+    run_wizard(console, quick=quick, file_override=file, decimals=decimals)
 
 
 @app.command(help=EMBED_HELP, epilog=EMBED_EPILOG)
@@ -206,6 +233,9 @@ def neighbors(
     threshold: float = typer.Option(
         None, "--threshold", "-t", help="Min similarity threshold (cosine only)"
     ),
+    decimals: int = typer.Option(
+        DEFAULT_DECIMALS, "--decimals", "-d", help="Decimal places for scores"
+    ),
     output: Path = typer.Option(None, "-o", "--output", help="Output file path"),
 ):
     valid_metrics = ["cosine", "euclidean", "manhattan", "dot"]
@@ -224,7 +254,7 @@ def neighbors(
 
     start = time.time()
     try:
-        result_df = find_neighbors(df, key, metric=metric, top_k=top_k)
+        result_df = find_neighbors(df, key, metric=metric, top_k=top_k, decimals=decimals)
     except ValueError as e:
         msg = str(e)
         if "Embedding column" in msg:
@@ -238,11 +268,7 @@ def neighbors(
     elapsed = _format_elapsed(time.time() - start)
 
     if threshold is not None and metric == "cosine":
-        before = len(result_df)
         result_df = result_df[result_df["score"] >= threshold].reset_index(drop=True)
-        before - len(result_df)
-    else:
-        pass
 
     output_path = output or input.with_name(f"{input.stem}_neighbors.xlsx")
     metadata = {
@@ -284,7 +310,7 @@ def neighbors(
         for _, row in subset.head(top_k).iterrows():
             score = row["score"]
             neighbor = str(row["neighbor_key"])
-            vals: list[str | Text] = [str(row["rank"]), neighbor, f"{score:.4f}"]
+            vals: list[str | Text] = [str(row["rank"]), neighbor, f"{score:.{decimals}f}"]
             if metric == "cosine":
                 vals.append(_score_bar(score, metric))
             preview.add_row(*vals)
@@ -302,6 +328,9 @@ def compare(
         ..., "-i", "--item", help="Two items to compare (exactly 2 required)"
     ),
     metric: str = typer.Option(DEFAULT_METRIC, "--metric", help="Metric to highlight"),
+    decimals: int = typer.Option(
+        DEFAULT_DECIMALS, "--decimals", "-d", help="Decimal places for scores"
+    ),
 ):
     if len(item) != 2:
         _handle_error(
@@ -318,7 +347,7 @@ def compare(
 
     start = time.time()
     try:
-        scores = compare_items(df, key, item[0], item[1])
+        scores = compare_items(df, key, item[0], item[1], decimals=decimals)
     except ValueError as e:
         msg = str(e)
         if "Embedding column" in msg:
@@ -353,12 +382,12 @@ def compare(
         if is_highlighted:
             marker = "[green]\u25cf[/green]"
             name = f"[bold green]{metric_name}[/bold green]"
-            score_str = f"[bold green]{score:.6f}[/bold green]"
+            score_str = f"[bold green]{score:.{decimals}f}[/bold green]"
             bar = _score_bar(score, metric_name)
         else:
             marker = " "
             name = f"[dim]{metric_name}[/dim]"
-            score_str = f"[dim]{score:.6f}[/dim]"
+            score_str = f"[dim]{score:.{decimals}f}[/dim]"
             bar = ""
         table.add_row(marker, name, score_str, bar)
 
@@ -456,35 +485,83 @@ def models(
     download: str = typer.Option(
         None, "--download", "-d", help="Download a model by shortcut or ID"
     ),
+    remove: str = typer.Option(
+        None, "--remove", "-r", help="Remove a cached model by shortcut or ID"
+    ),
 ):
     if download is not None:
-        try:
-            model_info = resolve_model(download)
-        except ValueError as e:
-            _handle_error(str(e))
-            return
+        _download_model(download)
+        return
 
-        console.print(
-            Panel(
-                f"Downloading [bold]{model_info.id}[/bold] ({model_info.size_mb} MB)...",
-                title="Download",
-                border_style="blue",
-            )
+    if remove is not None:
+        _remove_model(remove)
+        return
+
+    _list_models()
+
+
+def _download_model(shortcut_or_id: str) -> None:
+    try:
+        model_info = resolve_model(shortcut_or_id)
+    except ValueError as e:
+        _handle_error(str(e))
+        return
+
+    console.print(
+        Panel(
+            f"Downloading [bold]{model_info.id}[/bold] ({model_info.size_mb} MB)...",
+            title="Download",
+            border_style="blue",
         )
-        try:
-            load_model(model_info)
-        except Exception as e:
-            _handle_error(f"Download failed: {e}")
-            return
+    )
+    try:
+        load_model(model_info)
+    except Exception as e:
+        _handle_error(f"Download failed: {e}")
+        return
+    console.print(
+        Panel(
+            f"[green]\u2713[/green] {model_info.id} cached locally",
+            title="Complete",
+            border_style="green",
+        )
+    )
+
+
+def _remove_model(shortcut_or_id: str) -> None:
+    try:
+        model_info = resolve_model(shortcut_or_id)
+    except ValueError as e:
+        _handle_error(str(e))
+        return
+
+    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+    model_folder_name = "models--" + model_info.id.replace("/", "--")
+    model_path = cache_dir / model_folder_name
+
+    if not model_path.exists():
         console.print(
             Panel(
-                f"[green]\u2713[/green] {model_info.id} cached locally",
-                title="Complete",
-                border_style="green",
+                f"[yellow]{model_info.id}[/yellow] is not cached. Nothing to remove.",
+                title="Not Cached",
+                border_style="yellow",
             )
         )
         return
 
+    size_mb = sum(f.stat().st_size for f in model_path.rglob("*") if f.is_file()) / (1024 * 1024)
+    shutil.rmtree(model_path)
+
+    console.print(
+        Panel(
+            f"[green]\u2713[/green] Removed {model_info.id} ({size_mb:.0f} MB freed)",
+            title="Removed",
+            border_style="green",
+        )
+    )
+
+
+def _list_models() -> None:
     cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
     table = Table(
         title="Available Models",
@@ -497,25 +574,39 @@ def models(
     table.add_column("Dims", justify="right")
     table.add_column("Size", justify="right")
     table.add_column("Description")
+    table.add_column("Best For")
     table.add_column("Cached", justify="center")
+
+    domains = {
+        "mini": "General text",
+        "bge-large": "General text",
+        "nomic": "Long documents",
+        "gte": "General text",
+        "e5": "General text",
+        "address": "Addresses, locations",
+        "entity": "Company names, entities",
+    }
 
     for shortcut, info in MODEL_REGISTRY.items():
         model_folder_name = "models--" + info.id.replace("/", "--")
         cached = cache_dir.exists() and (cache_dir / model_folder_name).exists()
         cached_str = "[green]\u2713[/green]" if cached else "[dim]\u2717[/dim]"
+        domain = domains.get(shortcut, "")
         table.add_row(
             shortcut,
             info.id,
             str(info.dim),
             f"{info.size_mb} MB",
             info.description,
+            domain,
             cached_str,
         )
 
     console.print()
     console.print(table)
     console.print(
-        "\n[dim]Use -m <shortcut> in any command. Or pass a full HuggingFace model ID.[/dim]"
+        "\n[dim]Download: index-numerorum models -d <shortcut>    "
+        "Remove: index-numerorum models --remove <shortcut>[/dim]"
     )
 
 
@@ -604,8 +695,8 @@ def demo():
             f"  [green]\u2713[/green] products_embedded.xlsx    Data + embedding vectors\n"
             f"  [green]\u2713[/green] products_neighbors.xlsx   Nearest neighbor results\n\n"
             f"  [dim]Completed in {elapsed}[/dim]\n\n"
-            f"  [dim]Open any file in Excel to explore. Try with your own data:[/dim]\n"
-            f'  [cyan]index-numerorum embed your_file.xlsx -c "Column Name"[/cyan]\n',
+            f"  [dim]Open any file in Excel to explore. Or just run:[/dim]\n"
+            f"  [cyan]index-numerorum[/cyan]\n",
             title="Demo Complete",
             border_style="green",
         )
@@ -960,6 +1051,9 @@ def store_query_cmd(
     path: Path = typer.Argument(..., help="Store path"),
     text: str = typer.Option(..., "-t", "--text", help="Search text"),
     top_k: int = typer.Option(10, "--top-k", help="Number of results"),
+    decimals: int = typer.Option(
+        DEFAULT_DECIMALS, "--decimals", "-d", help="Decimal places for scores"
+    ),
 ) -> None:
     try:
         from .store import VectorStore
@@ -1003,7 +1097,7 @@ def store_query_cmd(
     for i, r in enumerate(results, 1):
         score = r["similarity"]
         bar = _score_bar(score, "cosine")
-        table.add_row(str(i), str(r["id"]), f"{score:.4f}", bar)
+        table.add_row(str(i), str(r["id"]), f"{score:.{decimals}f}", bar)
 
     console.print()
     console.print(table)

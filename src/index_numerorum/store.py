@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .config import DEFAULT_DECIMALS
 from .similarity import pairwise_cosine
 
 try:
@@ -168,7 +169,9 @@ class VectorStore:
         np.save(str(self.path / "_embeddings.npy"), self._embeddings)
         return len(docs)
 
-    def query(self, vector: list[float], top_k: int = 10) -> list[dict]:
+    def query(
+        self, vector: list[float], top_k: int = 10, decimals: int = DEFAULT_DECIMALS
+    ) -> list[dict]:
         results = self._collection.query(
             vectors=zvec.VectorQuery(self.EMB_FIELD, vector=vector), topk=top_k
         )
@@ -176,10 +179,11 @@ class VectorStore:
         for r in results:
             fields = r.fields or {}
             row_data = json.loads(fields.get("_row_data", "{}"))
+            sim = 1.0 - (r.score if r.score is not None else 1.0)
             output.append(
                 {
                     "id": r.id,
-                    "similarity": 1.0 - (r.score if r.score is not None else 1.0),
+                    "similarity": round(sim, decimals),
                     "fields": row_data,
                 }
             )
@@ -189,7 +193,7 @@ class VectorStore:
         vec = sentence_model.encode([text], show_progress_bar=False)[0].tolist()
         return self.query(vec, top_k)
 
-    def match_all(self, threshold: float) -> pd.DataFrame:
+    def match_all(self, threshold: float, decimals: int = DEFAULT_DECIMALS) -> pd.DataFrame:
         if self._embeddings.shape[0] < 2:
             return pd.DataFrame(columns=["query_key", "match_key", "similarity", "group_id"])
         sim_matrix = pairwise_cosine(self._embeddings)
@@ -208,7 +212,7 @@ class VectorStore:
                             {
                                 "query_key": a,
                                 "match_key": b,
-                                "similarity": sim,
+                                "similarity": round(sim, decimals),
                             }
                         )
         if not matches:
@@ -223,8 +227,10 @@ class VectorStore:
             drop=True
         )
 
-    def annotate(self, input_df: pd.DataFrame, threshold: float) -> pd.DataFrame:
-        matches = self.match_all(threshold)
+    def annotate(
+        self, input_df: pd.DataFrame, threshold: float, decimals: int = DEFAULT_DECIMALS
+    ) -> pd.DataFrame:
+        matches = self.match_all(threshold, decimals=decimals)
         result = input_df.copy()
         result["_match_count"] = 0
         result["_match_ids"] = [list() for _ in range(len(result))]

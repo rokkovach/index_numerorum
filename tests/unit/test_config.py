@@ -10,7 +10,7 @@ from index_numerorum.config import (
 
 class TestModelRegistry:
     def test_all_shortcuts_present(self):
-        expected = {"mini", "bge-large", "nomic", "gte", "e5"}
+        expected = {"mini", "bge-large", "nomic", "gte", "e5", "address", "entity"}
         assert set(MODEL_REGISTRY.keys()) == expected
 
     def test_shortcuts_map_to_correct_ids(self):

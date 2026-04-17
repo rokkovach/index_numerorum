@@ -29,20 +29,30 @@ pip install "index-numerorum[vec]"
 
 ---
 
-## 60-Second Demo
+## Quick Start
 
 ```bash
-index-numerorum demo
+# 1. Create a project folder and virtual environment
+mkdir my-project && cd my-project
+python3 -m venv .venv && source .venv/bin/activate
+
+# 2. Install
+pip install "git+https://github.com/rokkovach/index_numerorum.git"
+
+# 3. Drop your Excel file into input/
+mkdir input
+cp ~/Downloads/my_data.xlsx input/
+
+# 4. Run the wizard
+index-numerorum
 ```
 
-This creates a `./demo_output/` folder with sample data, embeddings, and neighbor
-results you can open in Excel immediately:
+The wizard guides you through file selection, column picking, model choice, and outputs neighbor results to `output/`.
 
-```
-demo_output/
-  demo_products.xlsx      source data (50 products)
-  demo_embedded.xlsx      data + embedding vectors
-  demo_neighbors.xlsx     nearest neighbor results
+For auto-detect mode (skips most prompts):
+
+```bash
+index-numerorum --quick
 ```
 
 ---
@@ -83,11 +93,13 @@ are needed, and the results land back in `.xlsx` files your team already knows.
 
 | Command | What it does | Example |
 |---------|-------------|---------|
+| *(bare)* | Launch guided wizard | `index-numerorum` |
+| `run` | Same wizard, with flags | `index-numerorum run --quick` |
 | `embed` | Generate embeddings for text columns | `index-numerorum embed data.xlsx -c "Product Name"` |
 | `neighbors` | Find nearest neighbors for every row | `index-numerorum neighbors embedded.xlsx -k "Product Name" --top-k 10` |
 | `compare` | Compare two specific records side by side | `index-numerorum compare embedded.xlsx -i "Widget A" -i "Widget B" -k "Name"` |
 | `compose-key` | Build a composite key from multiple columns | `index-numerorum compose-key staff.xlsx -c "First Name" -c "Last Name"` |
-| `models` | List or download available models | `index-numerorum models` |
+| `models` | List, download, or remove models | `index-numerorum models` |
 | `demo` | Run a guided demo with sample data | `index-numerorum demo` |
 | `doctor` | Check your environment (Python, torch, disk) | `index-numerorum doctor` |
 | `store init` | Create a persistent vector store from xlsx | `index-numerorum store init data.xlsx ./store -k ID -c Name` |
@@ -99,104 +111,6 @@ are needed, and the results land back in `.xlsx` files your team already knows.
 
 Every command has built-in examples. Run `index-numerorum <command> --help` to see them.
 Use `index-numerorum -v` to check the version.
-
----
-
-## Real-World Examples
-
-### Find duplicate products
-
-```bash
-# Step 1: embed product names
-index-numerorum embed products.xlsx -c "Product Name" -m mini
-
-# Step 2: find nearest neighbors (cosine similarity, top 10)
-index-numerorum neighbors products_embedded.xlsx \
-  -k "Product Name" \
-  --metric cosine \
-  --top-k 10 \
-  --output duplicates.xlsx
-```
-
-Open `duplicates.xlsx` -- rows with similarity above 0.95 are likely duplicates.
-
-### Compare two records
-
-```bash
-index-numerorum compare embedded.xlsx \
-  --item "Acme Wireless Mouse" \
-  --item "Acme Cordless Mouse" \
-  -k "Product Name" \
-  --metric cosine
-```
-
-Prints a table with all four similarity/distance metrics for that pair.
-
-### Composite identity matching
-
-Match people across datasets where names may vary slightly.
-
-```bash
-# Step 1: compose a key from first + last name
-index-numerorum compose-key staff.xlsx \
-  --columns "First Name" "Last Name" \
-  --strategy concatenate \
-  --embed \
-  -m mini \
-  --output staff_composed.xlsx
-
-# Step 2: find nearest neighbors on the composite key
-index-numerorum neighbors staff_composed.xlsx \
-  -k "_composite_key" \
-  --top-k 5 \
-  --metric cosine \
-  --output staff_matches.xlsx
-```
-
----
-
-## Vector Store Workflow
-
-The persistent vector store lets you build a reusable similarity index and find
-all duplicate groups in one command. Requires `pip install "index-numerorum[vec]"`.
-
-### Find and group duplicates
-
-```bash
-# Step 1: create a store from your xlsx
-index-numerorum store init products.xlsx ./product_store \
-  -k "Product ID" \
-  -c "Product Name" \
-  -m mini
-
-# Step 2: add more data from another file
-index-numerorum store add ./product_store catalog_update.xlsx
-
-# Step 3: find all pairs above 90% similarity, grouped by transitive match
-index-numerorum store match ./product_store --threshold 0.90 -o matches.xlsx
-```
-
-`matches.xlsx` contains `query_key`, `match_key`, `similarity`, and `group_id`
-columns. Rows that share a group ID are transitively similar (A matches B, B
-matches C -> all three are in group 1).
-
-### Annotate your original data
-
-```bash
-# Add match columns directly to your spreadsheet
-index-numerorum store annotate ./product_store products.xlsx \
-  --threshold 0.85 \
-  --output annotated.xlsx
-```
-
-This adds `_match_count`, `_match_ids`, `_best_match_id`, `_best_match_score`,
-and `_group_id` columns to every row.
-
-### Search by text
-
-```bash
-index-numerorum store query ./product_store "blue widget" --top-k 5
-```
 
 ---
 
@@ -212,16 +126,21 @@ cached in `~/.cache/huggingface/`.
 | `nomic` | `nomic-ai/nomic-embed-text-v1.5` | ~550 MB | Long text (8192 tokens), state-of-the-art |
 | `gte` | `Alibaba-NLP/gte-large-en-v1.5` | ~1.3 GB | Cutting-edge, top MTEB rankings |
 | `e5` | `intfloat/e5-large-v2` | ~1.3 GB | Strong performer, well-tested |
+| `address` | `pawan2411/address-emnet` | ~420 MB | Address matching, dedup, location data |
+| `entity` | `themelder/arctic-embed-xs-entity-resolution` | ~90 MB | Company names, entity resolution, counterparty matching |
+
+The wizard auto-detects column types and suggests the right model:
+- Columns with "address", "street", "city" get the `address` model
+- Columns with "company", "vendor", "supplier" get the `entity` model
+- Everything else defaults to `mini`
 
 ```bash
-# Use a shortcut
-index-numerorum embed data.xlsx -c "Name" -m bge-large
+# Download models for offline use
+index-numerorum models -d address
+index-numerorum models -d entity
 
-# Use a full HuggingFace model ID
-index-numerorum embed data.xlsx -c "Name" -m "BAAI/bge-large-en-v1.5"
-
-# List downloaded models
-index-numerorum models
+# Remove a cached model to free disk space
+index-numerorum models --remove bge-large
 ```
 
 ---
@@ -239,15 +158,122 @@ Default is `cosine`. Pass `--metric` to override.
 
 ---
 
+## Real-World Examples
+
+### Find duplicate products
+
+```bash
+index-numerorum embed products.xlsx -c "Product Name" -m mini
+index-numerorum neighbors products_embedded.xlsx \
+  -k "Product Name" \
+  --metric cosine \
+  --top-k 10 \
+  --output duplicates.xlsx
+```
+
+Open `duplicates.xlsx` -- rows with similarity above 0.95 are likely duplicates.
+
+### Match company names across lists
+
+```bash
+index-numerorum embed vendors.xlsx -c "Vendor Name" -m entity
+index-numerorum neighbors vendors_embedded.xlsx -k "Vendor Name" --output vendor_matches.xlsx
+```
+
+### Deduplicate addresses
+
+```bash
+index-numerorum embed locations.xlsx -c "Address" -m address
+index-numerorum neighbors locations_embedded.xlsx -k "Address" --output address_matches.xlsx
+```
+
+### Multi-column matching (transactions with customer + reseller)
+
+Drop the file into `input/` and run the wizard:
+
+```bash
+index-numerorum
+```
+
+Select both address columns -- the wizard auto-assigns the `address` model to each
+and averages the embeddings for a combined similarity score per row.
+
+### Compare two records
+
+```bash
+index-numerorum compare embedded.xlsx \
+  --item "Acme Wireless Mouse" \
+  --item "Acme Cordless Mouse" \
+  -k "Product Name" \
+  --metric cosine
+```
+
+### Composite identity matching
+
+```bash
+index-numerorum compose-key staff.xlsx \
+  --columns "First Name" "Last Name" \
+  --strategy concatenate \
+  --embed \
+  -m mini \
+  --output staff_composed.xlsx
+
+index-numerorum neighbors staff_composed.xlsx \
+  -k "_composite_key" \
+  --top-k 5 \
+  --metric cosine \
+  --output staff_matches.xlsx
+```
+
+### Store workflow (dedup groups)
+
+```bash
+index-numerorum store init products.xlsx ./product_store \
+  -k "Product ID" -c "Product Name" -m mini
+
+index-numerorum store add ./product_store catalog_update.xlsx
+
+index-numerorum store match ./product_store --threshold 0.90 -o matches.xlsx
+```
+
+`matches.xlsx` contains `query_key`, `match_key`, `similarity`, and `group_id`.
+Rows sharing a group ID are transitively similar (A~B, B~C -> all three in group 1).
+
+---
+
+## Vector Store Workflow
+
+The persistent vector store lets you build a reusable similarity index and find
+all duplicate groups in one command. Requires `pip install "index-numerorum[vec]"`.
+
+```bash
+# Create a store from your xlsx
+index-numerorum store init products.xlsx ./product_store \
+  -k "Product ID" -c "Product Name" -m mini
+
+# Add more data from another file
+index-numerorum store add ./product_store catalog_update.xlsx
+
+# Find all pairs above 90% similarity, grouped by transitive match
+index-numerorum store match ./product_store --threshold 0.90 -o matches.xlsx
+
+# Add match columns to your spreadsheet
+index-numerorum store annotate ./product_store products.xlsx \
+  --threshold 0.85 --output annotated.xlsx
+
+# Search by text
+index-numerorum store query ./product_store "blue widget" --top-k 5
+```
+
+---
+
 ## FAQ
 
 ### Is my data safe?
 
 Yes. Every computation runs locally on your machine. No data is uploaded, no
 API calls are made, and no telemetry is collected. This includes the vector
-store -- all embeddings stay on disk in a local directory. You can verify this by
-inspecting the source code or disconnecting from the internet before running
-the tool.
+store -- all embeddings stay on disk in a local directory.
 
 ### Do I need a GPU?
 
@@ -280,8 +306,16 @@ Yes. Pass any HuggingFace multilingual model to `--model`. For example:
 index-numerorum embed data.xlsx -c "Name" -m "paraphrase-multilingual-MiniLM-L12-v2"
 ```
 
-The five built-in shortcuts are optimized for English. For other languages,
+The seven built-in shortcuts are optimized for English. For other languages,
 use the full HuggingFace model ID.
+
+### How do scores work?
+
+Scores are rounded to 2 decimal places by default. Use `--decimals` to change:
+
+```bash
+index-numerorum neighbors data.xlsx -k "Name" --decimals 4
+```
 
 ---
 

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from .config import DEFAULT_TOP_K
+from .config import DEFAULT_DECIMALS, DEFAULT_TOP_K
 from .io import get_column_embeddings
 from .similarity import METRIC_FUNCTIONS, compute_pairwise
 
@@ -11,6 +11,7 @@ def find_neighbors(
     key_column: str,
     metric: str = "cosine",
     top_k: int = DEFAULT_TOP_K,
+    decimals: int = DEFAULT_DECIMALS,
 ) -> pd.DataFrame:
     embeddings = get_column_embeddings(df, key_column)
     pairwise = compute_pairwise(embeddings, metric=metric)
@@ -27,7 +28,7 @@ def find_neighbors(
                     "query_key": keys[i],
                     "neighbor_key": keys[j],
                     "rank": rank,
-                    "score": pairwise[i, j],
+                    "score": round(float(pairwise[i, j]), decimals),
                 }
             )
     return pd.DataFrame(rows)
@@ -38,6 +39,7 @@ def compare_items(
     key_column: str,
     item_a: str,
     item_b: str,
+    decimals: int = DEFAULT_DECIMALS,
 ) -> dict[str, float]:
     from .similarity import (
         cosine_similarity,
@@ -73,8 +75,8 @@ def compare_items(
     vec_b = embeddings[idx_b]
 
     return {
-        "cosine": float(cosine_similarity(vec_a, vec_b)),
-        "euclidean": float(euclidean_distance(vec_a, vec_b)),
-        "manhattan": float(manhattan_distance(vec_a, vec_b)),
-        "dot": float(dot_product(vec_a, vec_b)),
+        "cosine": round(float(cosine_similarity(vec_a, vec_b)), decimals),
+        "euclidean": round(float(euclidean_distance(vec_a, vec_b)), decimals),
+        "manhattan": round(float(manhattan_distance(vec_a, vec_b)), decimals),
+        "dot": round(float(dot_product(vec_a, vec_b)), decimals),
     }
