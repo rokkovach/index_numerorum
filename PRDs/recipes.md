@@ -4,6 +4,28 @@ Common workflows with Index Numerorum.
 
 ---
 
+## Business Templates (Quick Start)
+
+Pre-built templates with sample data and step-by-step walkthroughs:
+
+```bash
+# List all templates
+index-numerorum templates
+
+# Load a template into input/
+index-numerorum templates --use vendor-dedup
+
+# See full walkthrough
+index-numerorum templates --show vendor-dedup
+
+# Run
+index-numerorum --quick
+```
+
+Available: `vendor-dedup`, `address-cleansing`, `product-catalog`, `lead-dedup`, `counterparty-screening`.
+
+---
+
 ## Quick Start (Wizard)
 
 ```bash

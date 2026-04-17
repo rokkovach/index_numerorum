@@ -101,6 +101,7 @@ are needed, and the results land back in `.xlsx` files your team already knows.
 | `compose-key` | Build a composite key from multiple columns | `index-numerorum compose-key staff.xlsx -c "First Name" -c "Last Name"` |
 | `models` | List, download, or remove models | `index-numerorum models` |
 | `demo` | Run a guided demo with sample data | `index-numerorum demo` |
+| `templates` | List and load business use case templates | `index-numerorum templates` |
 | `doctor` | Check your environment (Python, torch, disk) | `index-numerorum doctor` |
 | `store init` | Create a persistent vector store from xlsx | `index-numerorum store init data.xlsx ./store -k ID -c Name` |
 | `store add` | Add rows from xlsx to an existing store | `index-numerorum store add ./store more_data.xlsx` |
@@ -155,6 +156,35 @@ index-numerorum models --remove bge-large
 | `dot` | Raw dot product (captures magnitude) | When both direction and scale matter |
 
 Default is `cosine`. Pass `--metric` to override.
+
+---
+
+## Business Templates
+
+Get started instantly with pre-built use case templates that include sample data,
+suggested models, and step-by-step instructions.
+
+```bash
+# List all templates
+index-numerorum templates
+
+# Load a template into input/
+index-numerorum templates --use vendor-dedup
+
+# See template details and walkthrough
+index-numerorum templates --show vendor-dedup
+```
+
+| Template ID | Use Case | Industry | Model |
+|-------------|----------|----------|-------|
+| `vendor-dedup` | Vendor deduplication after merger | Procurement / M&A | `entity` |
+| `address-cleansing` | Customer address cleansing & dedup | CRM / Customer Data | `address` |
+| `product-catalog` | Product catalog deduplication | E-Commerce / Retail | `mini` |
+| `lead-dedup` | Sales lead deduplication | Sales / CRM | `entity` |
+| `counterparty-screening` | Counterparty entity resolution | Finance / Compliance | `entity` |
+
+Each template includes 20 rows of realistic sample data with intentional duplicates
+to demonstrate matching. After loading, run `index-numerorum --quick` to process.
 
 ---
 

@@ -71,6 +71,7 @@ COMPARE_HELP = "Compare two specific records side-by-side"
 COMPOSE_HELP = "Build a composite key from multiple columns"
 MODELS_HELP = "List, download, or remove embedding models"
 DEMO_HELP = "Run a guided demo with sample data"
+TEMPLATES_HELP = "List and load business use case templates"
 DOCTOR_HELP = "Check your system environment"
 RUN_HELP = "Run the guided wizard (default when no command given)"
 
@@ -777,6 +778,93 @@ def doctor():
     console.print(
         f"\n[dim]index-numerorum v{__version__} | "
         f"Default model: {DEFAULT_MODEL} | Default metric: {DEFAULT_METRIC}[/dim]"
+    )
+
+
+TEMPLATES_EPILOG = (
+    "\n[bold]Examples:[/bold]\n\n"
+    "[dim]# List all templates[/dim]\n"
+    "  index-numerorum templates\n\n"
+    "[dim]# Load a template into input/[/dim]\n"
+    "  index-numerorum templates --use vendor-dedup\n\n"
+    "[dim]# Show template details[/dim]\n"
+    "  index-numerorum templates --show address-cleansing\n"
+)
+
+
+@app.command(help=TEMPLATES_HELP, epilog=TEMPLATES_EPILOG)
+def templates(
+    use: str | None = typer.Option(None, "--use", "-u", help="Copy a template xlsx to input/"),
+    show: str | None = typer.Option(None, "--show", "-s", help="Show template details"),
+) -> None:
+    from .templates import TEMPLATES, copy_template, get_template
+
+    if show is not None:
+        template = get_template(show)
+        if template is None:
+            ids = ", ".join(t.id for t in TEMPLATES)
+            _handle_error(f"Unknown template '{show}'.", f"Available: {ids}")
+            return
+
+        console.print(
+            Panel(
+                f"[bold]{template.name}[/bold]\n"
+                f"Industry: {template.industry}\n\n"
+                f"{template.description}\n\n"
+                f"Columns: [cyan]{', '.join(template.columns)}[/cyan]\n"
+                f"Key: [cyan]{template.key_column}[/cyan]    "
+                f"Embed: [cyan]{', '.join(template.embed_columns)}[/cyan]\n"
+                f"Model: [cyan]{template.suggested_model}[/cyan]    "
+                f"Rows: [cyan]{len(template.rows)}[/cyan]",
+                title=f"Template: {template.id}",
+                border_style="blue",
+            )
+        )
+
+        console.print("\n[bold]Steps:[/bold]")
+        for i, step in enumerate(template.steps, 1):
+            console.print(f"  {i}. {step}")
+        console.print()
+        return
+
+    if use is not None:
+        try:
+            dest = copy_template(use)
+            template = get_template(use)
+            console.print(
+                Panel(
+                    f"[green]\u2713[/green] {template.name}\n"
+                    f"  {len(template.rows)} rows -> {dest}\n\n"
+                    f"  [dim]Next: index-numerorum --quick[/dim]",
+                    title="Template Loaded",
+                    border_style="green",
+                )
+            )
+        except ValueError:
+            ids = ", ".join(t.id for t in TEMPLATES)
+            _handle_error(f"Unknown template '{use}'.", f"Available: {ids}")
+        return
+
+    table = Table(
+        title="Business Use Case Templates",
+        show_lines=False,
+        title_style="bold",
+        pad_edge=False,
+    )
+    table.add_column("ID", style="bold")
+    table.add_column("Name")
+    table.add_column("Industry")
+    table.add_column("Model", style="cyan")
+    table.add_column("Rows", justify="right")
+
+    for t in TEMPLATES:
+        table.add_row(t.id, t.name, t.industry, t.suggested_model, str(len(t.rows)))
+
+    console.print()
+    console.print(table)
+    console.print(
+        "\n[dim]Load: index-numerorum templates --use <id>    "
+        "Details: index-numerorum templates --show <id>[/dim]"
     )
 
 

@@ -50,6 +50,7 @@ pytest tests/integration/ -v
 src/index_numerorum/
   cli.py        # Typer CLI app. Bare invocation launches wizard (wizard.py)
   wizard.py     # Interactive wizard: file scan, column inspect, multi-model embed, neighbors, post-run menu
+  templates.py  # 5 business use case templates (sample xlsx + metadata + step-by-step guides)
   visuals.py    # Rich spinner helper and file table display
   config.py     # Model registry (7 models with best_for), column-model heuristics, constants, DEFAULT_DECIMALS
   embed.py      # load_model (with logging suppression), generate_embeddings, embed_columns

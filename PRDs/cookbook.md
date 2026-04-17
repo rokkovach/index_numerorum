@@ -220,6 +220,28 @@ Creates `demo_output/` with 20 sample products, embeddings, and neighbor results
 
 ---
 
+## Recipe: Start from a Business Template
+
+**Scenario:** New user wants to see how the tool works with realistic data.
+
+```bash
+# List available templates
+index-numerorum templates
+
+# Load a template (creates xlsx in input/)
+index-numerorum templates --use vendor-dedup
+
+# See template details and walkthrough
+index-numerorum templates --show vendor-dedup
+
+# Run with auto-detect
+index-numerorum --quick
+```
+
+Templates available: `vendor-dedup`, `address-cleansing`, `product-catalog`, `lead-dedup`, `counterparty-screening`.
+
+---
+
 ## Tips
 
 - **Thresholds:** Start at 0.90 for strict matching, lower to 0.80 for fuzzy matching
