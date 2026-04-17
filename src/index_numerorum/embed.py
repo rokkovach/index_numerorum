@@ -83,8 +83,4 @@ def embed_columns(
 
 
 def get_model_info(shortcut_or_id: str) -> ModelInfo:
-    model_info = resolve_model(shortcut_or_id)
-    console.print(
-        f"Using model: {model_info.id} (dimensions={model_info.dim}, size={model_info.size_mb}MB)"
-    )
-    return model_info
+    return resolve_model(shortcut_or_id)

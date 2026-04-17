@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
+from rich.text import Text
 
 from . import __version__
 from .config import (
@@ -29,74 +31,88 @@ from .neighbors import compare_items, find_neighbors
 
 console = Console()
 
-EMBED_EXAMPLES = """
-[b]Examples:[/b]
-  [dim]# Single column[/dim]
-  index-numerorum embed data.xlsx -c "Product Name"
 
-  [dim]# Multiple columns (each gets its own embedding)[/dim]
-  index-numerorum embed data.xlsx -c "Name" -c "Description"
+def _score_bar(score: float, metric: str, width: int = 20) -> str:
+    if metric == "cosine":
+        filled = int(max(0, min(width, (score + 1) / 2 * width)))
+        return "[green]" + "\u2588" * filled + "[/green]" + "\u2591" * (width - filled)
+    return ""
 
-  [dim]# Use a specific model[/dim]
-  index-numerorum embed data.xlsx -c "Name" -m bge-large
-"""
 
-NEIGHBORS_EXAMPLES = """
-[b]Examples:[/b]
-  [dim]# Find 10 most similar items[/dim]
-  index-numerorum neighbors embedded.xlsx -k "Product Name"
-
-  [dim]# Custom metric and top-k[/dim]
-  index-numerorum neighbors embedded.xlsx -k "Name" --metric euclidean --top-k 5
-"""
-
-COMPARE_EXAMPLES = """
-[b]Examples:[/b]
-  [dim]# Compare two records[/dim]
-  index-numerorum compare embedded.xlsx -k "Name" -i "Widget A" -i "Widget B"
-"""
-
-COMPOSE_EXAMPLES = """
-[b]Examples:[/b]
-  [dim]# Concatenate first + last name[/dim]
-  index-numerorum compose-key staff.xlsx -c "First Name" -c "Last Name"
-
-  [dim]# Weighted average with embedding[/dim]
-  index-numerorum compose-key data.xlsx -c "Title:0.7" -c "Abstract:0.3" -s weighted-average --embed
-"""
-
-MODELS_EXAMPLES = """
-[b]Examples:[/b]
-  [dim]# List all models[/dim]
-  index-numerorum models
-
-  [dim]# Download a model for offline use[/dim]
-  index-numerorum models -d bge-large
-"""
+def _format_elapsed(seconds: float) -> str:
+    if seconds < 1:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    return f"{seconds / 60:.1f}min"
 
 
 def _version_callback(value: bool) -> None:
     if value:
-        console.print(f"index-numerorum {__version__}")
+        console.print(f"[bold]index-numerorum[/bold] {__version__}")
         raise typer.Exit()
 
 
 def _handle_error(message: str, hint: str = "") -> None:
     content = f"[bold red]{message}[/bold red]"
     if hint:
-        content += f"\n\n[dim]{hint}[/dim]"
-    panel = Panel(
-        content,
-        title="Error",
-        border_style="red",
-    )
+        content += f"\n\n[hint]{hint}[/hint]"
+    panel = Panel(content, title="Error", border_style="red")
     console.print(panel)
     raise typer.Exit(code=1)
 
 
+EMBED_HELP = "Generate embeddings for text columns"
+NEIGHBORS_HELP = "Find nearest neighbors for every row"
+COMPARE_HELP = "Compare two specific records side-by-side"
+COMPOSE_HELP = "Build a composite key from multiple columns"
+MODELS_HELP = "List or download embedding models"
+DEMO_HELP = "Run a guided demo with sample data"
+DOCTOR_HELP = "Check your system environment"
+
+EMBED_EPILOG = (
+    "\n[bold]Examples:[/bold]\n\n"
+    '[dim]# Single column[/dim]\n  index-numerorum embed data.xlsx -c "Product Name"\n\n'
+    "[dim]# Multiple columns (each gets its own embedding)[/dim]\n"
+    '  index-numerorum embed data.xlsx -c "Name" -c "Description"\n\n'
+    "[dim]# Use a specific model[/dim]\n"
+    '  index-numerorum embed data.xlsx -c "Name" -m bge-large\n'
+)
+
+NEIGHBORS_EPILOG = (
+    "\n[bold]Examples:[/bold]\n\n"
+    "[dim]# Find 10 most similar items[/dim]\n"
+    '  index-numerorum neighbors embedded.xlsx -k "Product Name"\n\n'
+    "[dim]# Custom metric and top-k[/dim]\n"
+    '  index-numerorum neighbors embedded.xlsx -k "Name" --metric euclidean --top-k 5\n'
+)
+
+COMPARE_EPILOG = (
+    "\n[bold]Examples:[/bold]\n\n"
+    "[dim]# Compare two records[/dim]\n"
+    '  index-numerorum compare embedded.xlsx -k "Name" -i "Widget A" -i "Widget B"\n'
+)
+
+COMPOSE_EPILOG = (
+    "\n[bold]Examples:[/bold]\n\n"
+    "[dim]# Concatenate first + last name[/dim]\n"
+    '  index-numerorum compose-key staff.xlsx -c "First Name" -c "Last Name"\n\n'
+    "[dim]# Weighted average with embedding[/dim]\n"
+    '  index-numerorum compose-key data.xlsx -c "Title:0.7" -c "Abstract:0.3" '
+    "-s weighted-average --embed\n"
+)
+
+MODELS_EPILOG = (
+    "\n[bold]Examples:[/bold]\n\n"
+    "[dim]# List all models[/dim]\n"
+    "  index-numerorum models\n\n"
+    "[dim]# Download a model for offline use[/dim]\n"
+    "  index-numerorum models -d bge-large\n"
+)
+
 app = typer.Typer(
     name="index-numerorum",
-    help="Index Numerorum — local word embedding & similarity toolkit",
+    help="Index Numerorum -- local word embedding & similarity toolkit",
     rich_markup_mode="rich",
     no_args_is_help=True,
 )
@@ -111,7 +127,7 @@ def main(
     pass
 
 
-@app.command(epilog=EMBED_EXAMPLES)
+@app.command(help=EMBED_HELP, epilog=EMBED_EPILOG)
 def embed(
     input: Path = typer.Argument(..., help="Input .xlsx file", exists=True),
     column: list[str] = typer.Option(..., "-c", "--column", help="Column(s) to embed"),
@@ -123,31 +139,38 @@ def embed(
     try:
         df = read_xlsx(input)
         validate_columns(df, column)
-    except FileNotFoundError as e:
-        _handle_error(str(e))
-    except ValueError as e:
+    except (FileNotFoundError, ValueError) as e:
         _handle_error(str(e))
         return
 
     try:
         model_info = get_model_info(model)
     except ValueError as e:
-        _handle_error(
-            str(e),
-            f"Shortcuts: {', '.join(sorted(MODEL_REGISTRY))}",
-        )
+        shortcuts = ", ".join(sorted(MODEL_REGISTRY))
+        _handle_error(str(e), f"Shortcuts: {shortcuts}")
         return
 
+    console.print(
+        Panel(
+            f"Model: [cyan]{model_info.id}[/cyan] "
+            f"({model_info.dim} dims, {model_info.size_mb} MB)\n"
+            f"Columns: [cyan]{', '.join(column)}[/cyan]\n"
+            f"Rows: [cyan]{len(df)}[/cyan]",
+            title="Embedding",
+            border_style="blue",
+        )
+    )
+
+    start = time.time()
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
-        task = progress.add_task("Loading model...", total=None)
+        progress.add_task("Embedding rows...", total=None)
         sentence_model = load_model(model_info)
-        progress.update(task, description="Generating embeddings...")
         df = embed_columns(df, column, sentence_model, batch_size=batch_size, force=force)
-        progress.update(task, description="Done.")
+    elapsed = _format_elapsed(time.time() - start)
 
     output_path = output or input.with_name(f"{input.stem}_embedded.xlsx")
     metadata = {
@@ -162,10 +185,18 @@ def embed(
     }
     write_xlsx(df, output_path, metadata=metadata, overwrite=True)
 
-    console.print(f"[bold green]Success![/bold green] Written to {output_path}")
+    console.print(
+        Panel(
+            f"[green]\u2713[/green] {len(column)} column(s) embedded ({model_info.dim} dims each)\n"
+            f"[green]\u2713[/green] {len(df)} rows processed in {elapsed}\n"
+            f"[bold]\u2192[/bold] {output_path}",
+            title="Complete",
+            border_style="green",
+        )
+    )
 
 
-@app.command(epilog=NEIGHBORS_EXAMPLES)
+@app.command(help=NEIGHBORS_HELP, epilog=NEIGHBORS_EPILOG)
 def neighbors(
     input: Path = typer.Argument(..., help="Input .xlsx file with embeddings", exists=True),
     key: str = typer.Option(..., "-k", "--key", help="Key column with embedded data"),
@@ -183,21 +214,24 @@ def neighbors(
 
     try:
         df = read_xlsx(input)
-        result_df = find_neighbors(df, key, metric=metric, top_k=top_k)
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         _handle_error(str(e))
         return
+
+    start = time.time()
+    try:
+        result_df = find_neighbors(df, key, metric=metric, top_k=top_k)
     except ValueError as e:
         msg = str(e)
         if "Embedding column" in msg:
             _handle_error(
                 f"No embeddings found for column '{key}'.",
-                "Run [bold]embed[/bold] first to generate embeddings:\n"
-                f'  index-numerorum embed {input.name} -c "{key}"',
+                f'Run [bold]embed[/bold] first:\n  index-numerorum embed {input.name} -c "{key}"',
             )
         else:
             _handle_error(msg)
         return
+    elapsed = _format_elapsed(time.time() - start)
 
     output_path = output or input.with_name(f"{input.stem}_neighbors.xlsx")
     metadata = {
@@ -213,30 +247,43 @@ def neighbors(
     }
     write_xlsx(result_df, output_path, metadata=metadata, overwrite=True)
 
-    summary = Panel(
-        f"[bold]Neighbors computed[/bold]\n"
-        f"Key: {key}  |  Metric: {metric}  |  Top-K: {top_k}\n"
-        f"Total pairs: {len(result_df)}",
-        title="Neighbors Summary",
+    summary_line = (
+        f"Key: [cyan]{key}[/cyan]    Metric: [cyan]{metric}[/cyan]    "
+        f"Top-K: [cyan]{top_k}[/cyan]    Rows: [cyan]{len(df)}[/cyan]    "
+        f"Pairs: [cyan]{len(result_df)}[/cyan]    {elapsed}"
     )
-    console.print(summary)
+    console.print(Panel(summary_line, title="Neighbors", border_style="blue"))
 
-    preview_table = Table(title="Preview (first query)", show_lines=False)
-    preview_table.add_column("Rank", justify="right", style="bold")
-    preview_table.add_column("Neighbor")
-    preview_table.add_column("Score", justify="right")
-    first_query = result_df[result_df["query_key"] == result_df["query_key"].iloc[0]]
-    for _, row in first_query.head(5).iterrows():
-        score = row["score"]
-        bar_len = int(max(0, min(20, score * 20))) if metric == "cosine" else 10
-        bar = "[green]" + "#" * bar_len + "[/green]" + "░" * (20 - bar_len)
-        preview_table.add_row(str(row["rank"]), str(row["neighbor_key"]), f"{score:.4f} {bar}")
-    console.print(preview_table)
+    if len(result_df) > 0:
+        first_query = result_df["query_key"].iloc[0]
+        subset = result_df[result_df["query_key"] == first_query]
 
-    console.print(f"\n[bold green]Written to {output_path}[/bold green]")
+        preview = Table(
+            title=f'Top neighbors for "{first_query}"',
+            show_lines=False,
+            title_style="bold",
+            pad_edge=False,
+        )
+        preview.add_column("#", justify="right", style="bold", width=3)
+        preview.add_column("Neighbor", min_width=20)
+        preview.add_column("Score", justify="right", width=8)
+        if metric == "cosine":
+            preview.add_column("", width=20)
+
+        for _, row in subset.head(top_k).iterrows():
+            score = row["score"]
+            neighbor = str(row["neighbor_key"])
+            vals: list[str | Text] = [str(row["rank"]), neighbor, f"{score:.4f}"]
+            if metric == "cosine":
+                vals.append(_score_bar(score, metric))
+            preview.add_row(*vals)
+        console.print()
+        console.print(preview)
+
+    console.print(f"\n[bold green]\u2192[/bold green] {output_path}")
 
 
-@app.command(epilog=COMPARE_EXAMPLES)
+@app.command(help=COMPARE_HELP, epilog=COMPARE_EPILOG)
 def compare(
     input: Path = typer.Argument(..., help="Input .xlsx file with embeddings", exists=True),
     key: str = typer.Option(..., "-k", "--key", help="Key column"),
@@ -254,10 +301,13 @@ def compare(
 
     try:
         df = read_xlsx(input)
-        scores = compare_items(df, key, item[0], item[1])
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         _handle_error(str(e))
         return
+
+    start = time.time()
+    try:
+        scores = compare_items(df, key, item[0], item[1])
     except ValueError as e:
         msg = str(e)
         if "Embedding column" in msg:
@@ -270,22 +320,42 @@ def compare(
         else:
             _handle_error(msg)
         return
+    elapsed = _format_elapsed(time.time() - start)
 
-    table = Table(title=f"{item[0]} vs {item[1]}")
+    console.print(
+        Panel(
+            f'[cyan]"{item[0]}"[/cyan]  vs  [cyan]"{item[1]}"[/cyan]\n'
+            f"Key: {key}    Highlighted: {metric}    {elapsed}",
+            title="Comparison",
+            border_style="blue",
+        )
+    )
+
+    table = Table(show_lines=False, pad_edge=False)
+    table.add_column("", width=2)
     table.add_column("Metric", style="bold")
-    table.add_column("Score", justify="right")
+    table.add_column("Score", justify="right", width=12)
+    table.add_column("", width=20)
+
     for metric_name, score in scores.items():
-        if metric_name == metric:
-            row_metric = f"[bold green]{metric_name}[/bold green]"
-            row_score = f"[bold green]{score:.6f}[/bold green]"
+        is_highlighted = metric_name == metric
+        if is_highlighted:
+            marker = "[green]\u25cf[/green]"
+            name = f"[bold green]{metric_name}[/bold green]"
+            score_str = f"[bold green]{score:.6f}[/bold green]"
+            bar = _score_bar(score, metric_name)
         else:
-            row_metric = f"[dim]{metric_name}[/dim]"
-            row_score = f"[dim]{score:.6f}[/dim]"
-        table.add_row(row_metric, row_score)
+            marker = " "
+            name = f"[dim]{metric_name}[/dim]"
+            score_str = f"[dim]{score:.6f}[/dim]"
+            bar = ""
+        table.add_row(marker, name, score_str, bar)
+
+    console.print()
     console.print(table)
 
 
-@app.command(name="compose-key", epilog=COMPOSE_EXAMPLES)
+@app.command(name="compose-key", help=COMPOSE_HELP, epilog=COMPOSE_EPILOG)
 def compose_key(
     input: Path = typer.Argument(..., help="Input .xlsx file", exists=True),
     columns: list[str] = typer.Option(..., "-c", "--column", help="Columns to compose"),
@@ -312,21 +382,35 @@ def compose_key(
     try:
         df = read_xlsx(input)
         validate_columns(df, columns)
-    except FileNotFoundError as e:
-        _handle_error(str(e))
-        return
-    except ValueError as e:
+    except (FileNotFoundError, ValueError) as e:
         _handle_error(str(e))
         return
 
     composite = build_composite_key(df, columns, strategy=strategy, separator=separator)
     df[COMPOSITE_KEY_COLUMN] = composite
 
+    sample = str(composite.iloc[0])
+    if len(sample) > 50:
+        sample = sample[:47] + "..."
+
+    console.print(
+        Panel(
+            f"Columns: [cyan]{', '.join(columns)}[/cyan]\n"
+            f"Strategy: [cyan]{strategy}[/cyan]\n"
+            f"Sample: [dim]{sample}[/dim]",
+            title="Composite Key",
+            border_style="blue",
+        )
+    )
+
+    model_id = "N/A"
     if embed:
         try:
             model_info = get_model_info(model)
             sentence_model = load_model(model_info)
+            console.print(f"[dim]Embedding with {model_info.id} ({model_info.dim} dims)...[/dim]")
             df = embed_columns(df, [COMPOSITE_KEY_COLUMN], sentence_model, force=force)
+            model_id = f"{model_info.id} ({model_info.dim} dims)"
         except ValueError as e:
             _handle_error(str(e))
             return
@@ -338,16 +422,25 @@ def compose_key(
         "command": "compose-key",
         "columns": ", ".join(columns),
         "strategy": strategy,
-        "model": model if embed else "N/A",
+        "model": model_id,
         "date": datetime.now().isoformat(),
         "input_file": input.name,
         "input_rows": str(len(df)),
     }
     write_xlsx(df, output_path, metadata=metadata, overwrite=True)
-    console.print(f"[bold green]Success![/bold green] Written to {output_path}")
+
+    embed_info = f"\n[green]\u2713[/green] Embedded with {model_id}" if embed else ""
+    console.print(
+        Panel(
+            f"[green]\u2713[/green] Key built from {len(columns)} column(s){embed_info}\n"
+            f"[bold]\u2192[/bold] {output_path}",
+            title="Complete",
+            border_style="green",
+        )
+    )
 
 
-@app.command(epilog=MODELS_EXAMPLES)
+@app.command(help=MODELS_HELP, epilog=MODELS_EPILOG)
 def models(
     download: str = typer.Option(
         None, "--download", "-d", help="Download a model by shortcut or ID"
@@ -360,43 +453,62 @@ def models(
             _handle_error(str(e))
             return
 
-        console.print(f"Downloading [bold]{model_info.id}[/bold] ({model_info.size_mb} MB)...")
+        console.print(
+            Panel(
+                f"Downloading [bold]{model_info.id}[/bold] ({model_info.size_mb} MB)...",
+                title="Download",
+                border_style="blue",
+            )
+        )
         try:
             load_model(model_info)
         except Exception as e:
             _handle_error(f"Download failed: {e}")
             return
-        console.print(f"[bold green]Download complete.[/bold green] {model_info.id} cached.")
+        console.print(
+            Panel(
+                f"[green]\u2713[/green] {model_info.id} cached locally",
+                title="Complete",
+                border_style="green",
+            )
+        )
         return
 
     cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-    table = Table(title="Available Models", show_lines=False)
-    table.add_column("Shortcut", style="bold", max_width=12)
-    table.add_column("Model ID", max_width=30)
-    table.add_column("Dims", justify="right", max_width=5)
-    table.add_column("Size", justify="right", max_width=8)
-    table.add_column("Cached", justify="center", max_width=6)
+    table = Table(
+        title="Available Models",
+        show_lines=False,
+        title_style="bold",
+        pad_edge=False,
+    )
+    table.add_column("Shortcut", style="bold")
+    table.add_column("Model ID")
+    table.add_column("Dims", justify="right")
+    table.add_column("Size", justify="right")
+    table.add_column("Description")
+    table.add_column("Cached", justify="center")
 
     for shortcut, info in MODEL_REGISTRY.items():
         model_folder_name = "models--" + info.id.replace("/", "--")
         cached = cache_dir.exists() and (cache_dir / model_folder_name).exists()
-        cached_str = "[green]✓[/green]" if cached else "[dim]✗[/dim]"
-        size_str = f"{info.size_mb} MB"
+        cached_str = "[green]\u2713[/green]" if cached else "[dim]\u2717[/dim]"
         table.add_row(
             shortcut,
             info.id,
             str(info.dim),
-            size_str,
+            f"{info.size_mb} MB",
+            info.description,
             cached_str,
         )
 
+    console.print()
     console.print(table)
     console.print(
         "\n[dim]Use -m <shortcut> in any command. Or pass a full HuggingFace model ID.[/dim]"
     )
 
 
-@app.command()
+@app.command(help=DEMO_HELP)
 def demo():
     products = [
         {"ID": i, "Name": name, "Category": cat, "Description": desc}
@@ -433,14 +545,22 @@ def demo():
 
     df = pd.DataFrame(products)
 
+    console.print(
+        Panel(
+            "Creating 20 sample products, embedding, and finding neighbors...",
+            title="Index Numerorum Demo",
+            border_style="blue",
+        )
+    )
+
     demo_dir = Path("demo_output")
     demo_dir.mkdir(exist_ok=True)
 
     sample_path = demo_dir / "products.xlsx"
     write_xlsx(df, sample_path, overwrite=True)
-    console.print(f"  Sample data -> {sample_path}")
 
     model_info = get_model_info(DEFAULT_MODEL)
+    start = time.time()
 
     with Progress(
         SpinnerColumn(),
@@ -452,7 +572,7 @@ def demo():
         df_embedded = embed_columns(df.copy(), ["Name"], sentence_model)
         progress.update(task, description="Finding neighbors...")
         result_df = find_neighbors(df_embedded, "Name", metric="cosine", top_k=3)
-        progress.update(task, description="Done.")
+    elapsed = _format_elapsed(time.time() - start)
 
     embedded_path = demo_dir / "products_embedded.xlsx"
     metadata = {
@@ -463,26 +583,32 @@ def demo():
         "date": datetime.now().isoformat(),
     }
     write_xlsx(df_embedded, embedded_path, metadata=metadata, overwrite=True)
-    console.print(f"  Embedded   -> {embedded_path}")
 
     neighbors_path = demo_dir / "products_neighbors.xlsx"
     write_xlsx(result_df, neighbors_path, overwrite=True)
-    console.print(f"  Neighbors  -> {neighbors_path}")
 
     console.print(
         Panel(
-            "[bold green]Demo complete![/bold green]\n\n"
-            "Open the .xlsx files in Excel to explore.\n"
-            "Try it with your own data:\n"
-            '  [cyan]index-numerorum embed your_file.xlsx -c "Column Name"[/cyan]',
-            title="Demo Results",
+            f"\n  [green]\u2713[/green] products.xlsx             Source data (20 products)\n"
+            f"  [green]\u2713[/green] products_embedded.xlsx    Data + embedding vectors\n"
+            f"  [green]\u2713[/green] products_neighbors.xlsx   Nearest neighbor results\n\n"
+            f"  [dim]Completed in {elapsed}[/dim]\n\n"
+            f"  [dim]Open any file in Excel to explore. Try with your own data:[/dim]\n"
+            f'  [cyan]index-numerorum embed your_file.xlsx -c "Column Name"[/cyan]\n',
+            title="Demo Complete",
+            border_style="green",
         )
     )
 
 
-@app.command()
+@app.command(help=DOCTOR_HELP)
 def doctor():
-    table = Table(title="Index Numerorum — System Doctor", show_lines=False)
+    table = Table(
+        title="Index Numerorum -- System Doctor",
+        show_lines=False,
+        title_style="bold",
+        pad_edge=False,
+    )
     table.add_column("Check", style="bold")
     table.add_column("Status")
 
@@ -490,7 +616,9 @@ def doctor():
     py_ok = sys.version_info >= (3, 11)
     table.add_row(
         "Python version",
-        f"[green]✓ {py_version}[/green]" if py_ok else f"[red]✗ {py_version} (need >= 3.11)[/red]",
+        f"[green]\u2713 {py_version}[/green]"
+        if py_ok
+        else f"[red]\u2717 {py_version} (need >= 3.11)[/red]",
     )
 
     try:
@@ -499,18 +627,19 @@ def doctor():
         device = "cpu"
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             device = "mps"
-        table.add_row("PyTorch", f"[green]✓ {torch.__version__} ({device})[/green]")
+        table.add_row("PyTorch", f"[green]\u2713 {torch.__version__} ({device})[/green]")
     except ImportError:
-        table.add_row("PyTorch", "[red]✗ not installed[/red]")
+        table.add_row("PyTorch", "[red]\u2717 not installed[/red]")
 
     try:
         import sentence_transformers
 
         table.add_row(
-            "sentence-transformers", f"[green]✓ {sentence_transformers.__version__}[/green]"
+            "sentence-transformers",
+            f"[green]\u2713 {sentence_transformers.__version__}[/green]",
         )
     except ImportError:
-        table.add_row("sentence-transformers", "[red]✗ not installed[/red]")
+        table.add_row("sentence-transformers", "[red]\u2717 not installed[/red]")
 
     cache_dir = Path.home() / ".cache" / "huggingface"
     if cache_dir.exists():
@@ -519,13 +648,14 @@ def doctor():
             used_gb = usage.used / (1024**3)
             total_gb = usage.total / (1024**3)
             table.add_row(
-                "HF cache", f"[green]✓ {used_gb:.1f} GB used / {total_gb:.1f} GB total[/green]"
+                "HF cache", f"[green]\u2713 {used_gb:.1f} GB used / {total_gb:.1f} GB total[/green]"
             )
         except OSError:
-            table.add_row("HF cache", "[yellow]⚠ could not check[/yellow]")
+            table.add_row("HF cache", "[yellow]\u26a0 could not check[/yellow]")
     else:
         table.add_row("HF cache", "[dim]no cache directory yet[/dim]")
 
+    console.print()
     console.print(table)
     console.print(
         f"\n[dim]index-numerorum v{__version__} | "

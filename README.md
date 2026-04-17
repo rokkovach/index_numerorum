@@ -79,13 +79,14 @@ are needed, and the results land back in `.xlsx` files your team already knows.
 |---------|-------------|---------|
 | `embed` | Generate embeddings for text columns | `index-numerorum embed data.xlsx -c "Product Name"` |
 | `neighbors` | Find nearest neighbors for every row | `index-numerorum neighbors embedded.xlsx -k "Product Name" --top-k 10` |
-| `compare` | Compare two specific records side by side | `index-numerorum compare embedded.xlsx --item "Widget A" --item "Widget B" -k "Name"` |
-| `compose-key` | Build a composite key from multiple columns | `index-numerorum compose-key staff.xlsx --columns "First Name" "Last Name"` |
+| `compare` | Compare two specific records side by side | `index-numerorum compare embedded.xlsx -i "Widget A" -i "Widget B" -k "Name"` |
+| `compose-key` | Build a composite key from multiple columns | `index-numerorum compose-key staff.xlsx -c "First Name" -c "Last Name"` |
 | `models` | List or download available models | `index-numerorum models` |
 | `demo` | Run a guided demo with sample data | `index-numerorum demo` |
 | `doctor` | Check your environment (Python, torch, disk) | `index-numerorum doctor` |
 
-Run any command with `--help` for full options and examples.
+Every command has built-in examples. Run `index-numerorum <command> --help` to see them.
+Use `index-numerorum -v` to check the version.
 
 ---
 
