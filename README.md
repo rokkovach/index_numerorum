@@ -21,6 +21,12 @@ cd index_numerorum
 pip install -e ".[dev]"
 ```
 
+With vector store support (optional):
+
+```bash
+pip install "index-numerorum[vec]"
+```
+
 ---
 
 ## 60-Second Demo
@@ -84,6 +90,12 @@ are needed, and the results land back in `.xlsx` files your team already knows.
 | `models` | List or download available models | `index-numerorum models` |
 | `demo` | Run a guided demo with sample data | `index-numerorum demo` |
 | `doctor` | Check your environment (Python, torch, disk) | `index-numerorum doctor` |
+| `store init` | Create a persistent vector store from xlsx | `index-numerorum store init data.xlsx ./store -k ID -c Name` |
+| `store add` | Add rows from xlsx to an existing store | `index-numerorum store add ./store more_data.xlsx` |
+| `store match` | Find all pairs above similarity threshold | `index-numerorum store match ./store --threshold 0.90` |
+| `store annotate` | Enrich xlsx with match info and group IDs | `index-numerorum store annotate ./store data.xlsx -t 0.85` |
+| `store query` | Search the store by text | `index-numerorum store query ./store "wireless mouse"` |
+| `store info` | Show store metadata and stats | `index-numerorum store info ./store` |
 
 Every command has built-in examples. Run `index-numerorum <command> --help` to see them.
 Use `index-numerorum -v` to check the version.
@@ -143,6 +155,51 @@ index-numerorum neighbors staff_composed.xlsx \
 
 ---
 
+## Vector Store Workflow
+
+The persistent vector store lets you build a reusable similarity index and find
+all duplicate groups in one command. Requires `pip install "index-numerorum[vec]"`.
+
+### Find and group duplicates
+
+```bash
+# Step 1: create a store from your xlsx
+index-numerorum store init products.xlsx ./product_store \
+  -k "Product ID" \
+  -c "Product Name" \
+  -m mini
+
+# Step 2: add more data from another file
+index-numerorum store add ./product_store catalog_update.xlsx
+
+# Step 3: find all pairs above 90% similarity, grouped by transitive match
+index-numerorum store match ./product_store --threshold 0.90 -o matches.xlsx
+```
+
+`matches.xlsx` contains `query_key`, `match_key`, `similarity`, and `group_id`
+columns. Rows that share a group ID are transitively similar (A matches B, B
+matches C -> all three are in group 1).
+
+### Annotate your original data
+
+```bash
+# Add match columns directly to your spreadsheet
+index-numerorum store annotate ./product_store products.xlsx \
+  --threshold 0.85 \
+  --output annotated.xlsx
+```
+
+This adds `_match_count`, `_match_ids`, `_best_match_id`, `_best_match_score`,
+and `_group_id` columns to every row.
+
+### Search by text
+
+```bash
+index-numerorum store query ./product_store "blue widget" --top-k 5
+```
+
+---
+
 ## Models
 
 All models run locally on CPU and Apple MPS. Models are downloaded once and
@@ -187,7 +244,8 @@ Default is `cosine`. Pass `--metric` to override.
 ### Is my data safe?
 
 Yes. Every computation runs locally on your machine. No data is uploaded, no
-API calls are made, and no telemetry is collected. You can verify this by
+API calls are made, and no telemetry is collected. This includes the vector
+store -- all embeddings stay on disk in a local directory. You can verify this by
 inspecting the source code or disconnecting from the internet before running
 the tool.
 

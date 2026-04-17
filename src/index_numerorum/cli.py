@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import typer
 from rich.console import Console
@@ -202,6 +203,9 @@ def neighbors(
     key: str = typer.Option(..., "-k", "--key", help="Key column with embedded data"),
     metric: str = typer.Option(DEFAULT_METRIC, "--metric", help="Similarity metric"),
     top_k: int = typer.Option(DEFAULT_TOP_K, "--top-k", help="Number of neighbors"),
+    threshold: float = typer.Option(
+        None, "--threshold", "-t", help="Min similarity threshold (cosine only)"
+    ),
     output: Path = typer.Option(None, "-o", "--output", help="Output file path"),
 ):
     valid_metrics = ["cosine", "euclidean", "manhattan", "dot"]
@@ -232,6 +236,13 @@ def neighbors(
             _handle_error(msg)
         return
     elapsed = _format_elapsed(time.time() - start)
+
+    if threshold is not None and metric == "cosine":
+        before = len(result_df)
+        result_df = result_df[result_df["score"] >= threshold].reset_index(drop=True)
+        before - len(result_df)
+    else:
+        pass
 
     output_path = output or input.with_name(f"{input.stem}_neighbors.xlsx")
     metadata = {
@@ -641,6 +652,15 @@ def doctor():
     except ImportError:
         table.add_row("sentence-transformers", "[red]\u2717 not installed[/red]")
 
+    try:
+        import zvec as _zvec
+
+        table.add_row("zvec (optional)", f"[green]\u2713 {_zvec.__version__}[/green]")
+    except ImportError:
+        table.add_row(
+            "zvec (optional)", "[dim]not installed (pip install index-numerorum[vec])[/dim]"
+        )
+
     cache_dir = Path.home() / ".cache" / "huggingface"
     if cache_dir.exists():
         try:
@@ -660,6 +680,365 @@ def doctor():
     console.print(
         f"\n[dim]index-numerorum v{__version__} | "
         f"Default model: {DEFAULT_MODEL} | Default metric: {DEFAULT_METRIC}[/dim]"
+    )
+
+
+@app.command(help="Manage persistent vector stores (requires zvec)")
+def store(
+    ctx: typer.Context,
+) -> None:
+    pass
+
+
+store_app = typer.Typer(
+    name="store",
+    help="Persistent vector store operations (requires: pip install index-numerorum[vec])",
+    rich_markup_mode="rich",
+)
+app.add_typer(store_app, name="store")
+
+
+@store_app.command(name="init", help="Create a new vector store from an xlsx file")
+def store_init(
+    input: Path = typer.Argument(..., help="Input .xlsx file", exists=True),
+    path: Path = typer.Argument(..., help="Store path (directory)"),
+    key_column: str = typer.Option(..., "-k", "--key-column", help="Column with unique IDs"),
+    embed_column: list[str] = typer.Option(..., "-c", "--embed-column", help="Column(s) to embed"),
+    model: str = typer.Option(DEFAULT_MODEL, "-m", "--model"),
+    batch_size: int = typer.Option(DEFAULT_BATCH_SIZE, "--batch-size"),
+) -> None:
+    try:
+        from .store import VectorStore
+    except ImportError as e:
+        _handle_error(str(e))
+        return
+
+    try:
+        df = read_xlsx(input)
+        validate_columns(df, [key_column, *list(embed_column)])
+        model_info = resolve_model(model)
+    except (FileNotFoundError, ValueError) as e:
+        _handle_error(str(e))
+        return
+
+    console.print(
+        Panel(
+            f"Input: [cyan]{input.name}[/cyan] ({len(df)} rows)\n"
+            f"Model: [cyan]{model_info.id}[/cyan] ({model_info.dim} dims)\n"
+            f"Key: [cyan]{key_column}[/cyan]    Embed: [cyan]{', '.join(embed_column)}[/cyan]",
+            title="Creating Store",
+            border_style="blue",
+        )
+    )
+
+    start = time.time()
+    from .embed import load_model
+
+    sentence_model = load_model(model_info)
+    texts = df[embed_column[0]].fillna("").astype(str)
+    for col in embed_column[1:]:
+        texts = texts + " " + df[col].fillna("").astype(str)
+
+    embeddings = sentence_model.encode(
+        texts.tolist(), batch_size=batch_size, show_progress_bar=False
+    )
+    embeddings = np.array(embeddings, dtype=np.float32)
+
+    store_obj = VectorStore.create(
+        path=path,
+        model_id=model_info.id,
+        dimensions=model_info.dim,
+        key_column=key_column,
+        embed_columns=list(embed_column),
+    )
+    key_values = df[key_column].astype(str).tolist()
+    store_obj.insert_rows(df, embeddings, key_values)
+    elapsed = _format_elapsed(time.time() - start)
+
+    console.print(
+        Panel(
+            f"[green]\u2713[/green] Store created at {path}\n"
+            f"[green]\u2713[/green] {len(df)} rows embedded and stored\n"
+            f"  Model: {model_info.id} ({model_info.dim} dims)\n"
+            f"  Key: {key_column}    Embed: {', '.join(embed_column)}\n"
+            f"  {elapsed}",
+            title="Store Created",
+            border_style="green",
+        )
+    )
+
+
+@store_app.command(name="add", help="Add rows from xlsx to an existing store")
+def store_add(
+    path: Path = typer.Argument(..., help="Store path"),
+    input: Path = typer.Argument(..., help="Input .xlsx file", exists=True),
+    batch_size: int = typer.Option(DEFAULT_BATCH_SIZE, "--batch-size"),
+) -> None:
+    try:
+        from .store import VectorStore
+    except ImportError as e:
+        _handle_error(str(e))
+        return
+
+    try:
+        store_obj = VectorStore(path)
+        df = read_xlsx(input)
+        key_col = store_obj.key_column
+        validate_columns(df, [key_col, *store_obj.embed_columns])
+    except Exception as e:
+        _handle_error(str(e))
+        return
+
+    existing_keys = set(store_obj._keys)
+    key_values = df[key_col].astype(str).tolist()
+    mask = [k not in existing_keys for k in key_values]
+    new_df = df[mask].reset_index(drop=True)
+    new_keys = [k for k, m in zip(key_values, mask, strict=False) if m]
+    skipped = len(df) - len(new_df)
+
+    if len(new_df) == 0:
+        console.print(
+            Panel(
+                f"All {len(df)} rows already in store. Nothing to add.",
+                title="Store Add",
+                border_style="yellow",
+            )
+        )
+        return
+
+    from .embed import load_model
+
+    model_info = resolve_model(store_obj.model_id)
+    sentence_model = load_model(model_info)
+
+    texts = new_df[store_obj.embed_columns[0]].fillna("").astype(str)
+    for col in store_obj.embed_columns[1:]:
+        texts = texts + " " + new_df[col].fillna("").astype(str)
+
+    start = time.time()
+    embeddings = sentence_model.encode(
+        texts.tolist(), batch_size=batch_size, show_progress_bar=False
+    )
+    embeddings = np.array(embeddings, dtype=np.float32)
+    store_obj.insert_rows(new_df, embeddings, new_keys)
+    elapsed = _format_elapsed(time.time() - start)
+
+    console.print(
+        Panel(
+            f"[green]\u2713[/green] {len(new_df)} rows added\n"
+            f"  {skipped} rows skipped (already in store)\n"
+            f"  Store now has {store_obj.row_count} rows\n"
+            f"  {elapsed}",
+            title="Store Updated",
+            border_style="green",
+        )
+    )
+
+
+@store_app.command(name="match", help="Find all pairs above similarity threshold")
+def store_match(
+    path: Path = typer.Argument(..., help="Store path"),
+    threshold: float = typer.Option(0.90, "-t", "--threshold", help="Similarity threshold (0-1)"),
+    output: Path = typer.Option(None, "-o", "--output", help="Output xlsx path"),
+) -> None:
+    try:
+        from .store import VectorStore
+    except ImportError as e:
+        _handle_error(str(e))
+        return
+
+    try:
+        store_obj = VectorStore(path)
+    except Exception as e:
+        _handle_error(str(e))
+        return
+
+    console.print(
+        Panel(
+            f"Store: [cyan]{path}[/cyan] ({store_obj.row_count} rows)\n"
+            f"Threshold: [cyan]{threshold}[/cyan]",
+            title="Matching",
+            border_style="blue",
+        )
+    )
+
+    start = time.time()
+    result_df = store_obj.match_all(threshold)
+    elapsed = _format_elapsed(time.time() - start)
+
+    if result_df.empty:
+        console.print(
+            Panel(
+                f"No matches found above {threshold}.\n"
+                f"Try lowering --threshold (e.g., 0.80).\n"
+                f"  {elapsed}",
+                title="No Matches",
+                border_style="yellow",
+            )
+        )
+        return
+
+    n_groups = result_df["group_id"].nunique()
+    output_path = output or Path(f"matches_{path.name}.xlsx")
+    metadata = {
+        "tool": "index-numerorum",
+        "version": __version__,
+        "command": "store match",
+        "threshold": str(threshold),
+        "total_pairs": str(len(result_df)),
+        "dedup_groups": str(n_groups),
+        "date": datetime.now().isoformat(),
+    }
+    write_xlsx(result_df, output_path, metadata=metadata, overwrite=True)
+
+    console.print(
+        Panel(
+            f"[green]\u2713[/green] {len(result_df)} matching pairs found\n"
+            f"  {n_groups} dedup groups\n"
+            f"  Threshold: {threshold}\n"
+            f"  {elapsed}\n"
+            f"[bold]\u2192[/bold] {output_path}",
+            title="Match Complete",
+            border_style="green",
+        )
+    )
+
+
+@store_app.command(name="annotate", help="Write match annotations back into xlsx")
+def store_annotate(
+    path: Path = typer.Argument(..., help="Store path"),
+    input: Path = typer.Argument(..., help="Input .xlsx file to annotate", exists=True),
+    threshold: float = typer.Option(0.90, "-t", "--threshold", help="Similarity threshold"),
+    output: Path = typer.Option(None, "-o", "--output", help="Output xlsx path"),
+) -> None:
+    try:
+        from .store import VectorStore
+    except ImportError as e:
+        _handle_error(str(e))
+        return
+
+    try:
+        store_obj = VectorStore(path)
+        df = read_xlsx(input)
+    except Exception as e:
+        _handle_error(str(e))
+        return
+
+    start = time.time()
+    result_df = store_annotate_df(store_obj, df, threshold)
+    elapsed = _format_elapsed(time.time() - start)
+
+    output_path = output or input.with_name(f"{input.stem}_annotated.xlsx")
+    write_xlsx(result_df, output_path, overwrite=True)
+
+    match_count = (result_df["_match_count"] > 0).sum()
+    n_groups = result_df["_group_id"].nunique() - (1 if 0 in result_df["_group_id"].values else 0)
+    console.print(
+        Panel(
+            f"[green]\u2713[/green] {match_count} rows have matches "
+            f"({n_groups} dedup groups)\n"
+            f"  Threshold: {threshold}    {elapsed}\n"
+            f"  Added: _match_count, _match_ids, "
+            f"_best_match_id, _best_match_score, _group_id\n"
+            f"[bold]\u2192[/bold] {output_path}",
+            title="Annotation Complete",
+            border_style="green",
+        )
+    )
+
+
+def store_annotate_df(store_obj: object, df: pd.DataFrame, threshold: float) -> pd.DataFrame:
+    result = store_obj.annotate(df, threshold)
+    result["_match_ids"] = result["_match_ids"].apply(
+        lambda x: ", ".join(x) if isinstance(x, list) else str(x)
+    )
+    return result
+
+
+@store_app.command(name="query", help="Query store with free text")
+def store_query_cmd(
+    path: Path = typer.Argument(..., help="Store path"),
+    text: str = typer.Option(..., "-t", "--text", help="Search text"),
+    top_k: int = typer.Option(10, "--top-k", help="Number of results"),
+) -> None:
+    try:
+        from .store import VectorStore
+    except ImportError as e:
+        _handle_error(str(e))
+        return
+
+    try:
+        store_obj = VectorStore(path)
+    except Exception as e:
+        _handle_error(str(e))
+        return
+
+    from .embed import load_model
+
+    model_info = resolve_model(store_obj.model_id)
+    sentence_model = load_model(model_info)
+
+    start = time.time()
+    results = store_obj.query_by_text(text, sentence_model, top_k=top_k)
+    elapsed = _format_elapsed(time.time() - start)
+
+    if not results:
+        console.print("[dim]No results found.[/dim]")
+        return
+
+    console.print(
+        Panel(
+            f'Query: [cyan]"{text}"[/cyan]\nStore: {store_obj.row_count} rows    {elapsed}',
+            title="Query",
+            border_style="blue",
+        )
+    )
+
+    table = Table(show_lines=False, pad_edge=False)
+    table.add_column("#", justify="right", style="bold", width=3)
+    table.add_column("ID")
+    table.add_column("Score", justify="right", width=8)
+    table.add_column("", width=20)
+
+    for i, r in enumerate(results, 1):
+        score = r["similarity"]
+        bar = _score_bar(score, "cosine")
+        table.add_row(str(i), str(r["id"]), f"{score:.4f}", bar)
+
+    console.print()
+    console.print(table)
+
+
+@store_app.command(name="info", help="Show store metadata")
+def store_info(
+    path: Path = typer.Argument(..., help="Store path"),
+) -> None:
+    try:
+        from .store import VectorStore
+    except ImportError as e:
+        _handle_error(str(e))
+        return
+
+    try:
+        store_obj = VectorStore(path)
+    except Exception as e:
+        _handle_error(str(e))
+        return
+
+    info = store_obj.info()
+    size_mb = info["size_on_disk"] / (1024 * 1024)
+
+    console.print(
+        Panel(
+            f"Path: [cyan]{info['path']}[/cyan]\n"
+            f"Rows: [cyan]{info['row_count']}[/cyan]\n"
+            f"Model: [cyan]{info['model_id']}[/cyan] ({info['dimensions']} dims)\n"
+            f"Key column: [cyan]{info['key_column']}[/cyan]\n"
+            f"Embed columns: [cyan]{', '.join(info['embed_columns'])}[/cyan]\n"
+            f"Size on disk: [cyan]{size_mb:.1f} MB[/cyan]",
+            title="Store Info",
+            border_style="blue",
+        )
     )
 
 
