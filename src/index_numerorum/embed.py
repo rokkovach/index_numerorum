@@ -1,15 +1,42 @@
 from __future__ import annotations
 
+import contextlib
+import io
+import logging
+import warnings
+
 import numpy as np
 import pandas as pd
+from rich.console import Console
 from sentence_transformers import SentenceTransformer
 
 from .config import DEFAULT_BATCH_SIZE, EMBEDDING_COLUMN_PREFIX, ModelInfo, resolve_model
 from .io import serialize_embedding
 
+console = Console()
+
 
 def load_model(model_info: ModelInfo) -> SentenceTransformer:
-    return SentenceTransformer(model_info.id, device="cpu")
+    buf = io.StringIO()
+    transformers_logger = logging.getLogger("transformers")
+    sentence_transformers_logger = logging.getLogger("sentence_transformers")
+    hf_hub_logger = logging.getLogger("huggingface_hub")
+    prev_levels = {
+        "transformers": transformers_logger.level,
+        "sentence_transformers": sentence_transformers_logger.level,
+        "huggingface_hub": hf_hub_logger.level,
+    }
+    transformers_logger.setLevel(logging.CRITICAL)
+    sentence_transformers_logger.setLevel(logging.CRITICAL)
+    hf_hub_logger.setLevel(logging.CRITICAL)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            model = SentenceTransformer(model_info.id, device="cpu")
+    transformers_logger.setLevel(prev_levels["transformers"])
+    sentence_transformers_logger.setLevel(prev_levels["sentence_transformers"])
+    hf_hub_logger.setLevel(prev_levels["huggingface_hub"])
+    return model
 
 
 def generate_embeddings(
@@ -43,9 +70,8 @@ def embed_columns(
     for column in columns:
         embedding_col = f"{EMBEDDING_COLUMN_PREFIX}{column}"
         if embedding_col in df.columns and not force:
-            print(
-                f"Embedding column '{embedding_col}' already exists. "
-                "Skipping (use force=True to overwrite)."
+            console.print(
+                f"[dim]Skipping '{column}' (already embedded). Use --force to overwrite.[/dim]"
             )
             continue
 
@@ -58,7 +84,7 @@ def embed_columns(
 
 def get_model_info(shortcut_or_id: str) -> ModelInfo:
     model_info = resolve_model(shortcut_or_id)
-    print(
+    console.print(
         f"Using model: {model_info.id} (dimensions={model_info.dim}, size={model_info.size_mb}MB)"
     )
     return model_info
