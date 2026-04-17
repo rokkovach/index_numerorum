@@ -49,9 +49,9 @@ pytest tests/integration/ -v
 ```
 src/index_numerorum/
   cli.py        # Typer CLI app. Bare invocation launches wizard (wizard.py)
-  wizard.py     # Interactive wizard: file scan, column inspect, multi-model embed, neighbors
-  visuals.py    # Rich progress helpers: spinners, progress bars, completion panels
-  config.py     # Model registry (7 models), column-model heuristics, constants
+  wizard.py     # Interactive wizard: file scan, column inspect, multi-model embed, neighbors, post-run menu
+  visuals.py    # Rich spinner helper and file table display
+  config.py     # Model registry (7 models with best_for), column-model heuristics, constants, DEFAULT_DECIMALS
   embed.py      # load_model (with logging suppression), generate_embeddings, embed_columns
   io.py         # XLSX read/write, validate_columns, embedding serialization
   keys.py       # Composite key construction (concatenate, average, weighted-average)
@@ -69,20 +69,35 @@ src/index_numerorum/
 - **Scores rounded to 2 decimals** by default (`DEFAULT_DECIMALS` in config.py), configurable via `--decimals`
 - **No comments in code** unless explicitly requested
 - **Ruff** for lint + format, target Python 3.11, line length 100
-- **pytest** for tests, 124 tests currently passing
+- **pytest** for tests
 
 ## Models
 
-7 models in MODEL_REGISTRY:
-- `mini` (all-MiniLM-L6-v2) -- default, general text
-- `bge-large` (BAAI/bge-large-en-v1.5) -- top accuracy
-- `nomic` (nomic-ai/nomic-embed-text-v1.5) -- long context
-- `gte` (Alibaba-NLP/gte-large-en-v1.5) -- cutting-edge
-- `e5` (intfloat/e5-large-v2) -- well-tested
-- `address` (pawan2411/address-emnet) -- address matching & dedup
-- `entity` (themelder/arctic-embed-xs-entity-resolution) -- company names, entity resolution
+7 models in MODEL_REGISTRY, each with `best_for` field:
+- `mini` (all-MiniLM-L6-v2) -- General text (default)
+- `bge-large` (BAAI/bge-large-en-v1.5) -- General text, production
+- `nomic` (nomic-ai/nomic-embed-text-v1.5) -- Long documents
+- `gte` (Alibaba-NLP/gte-large-en-v1.5) -- General text
+- `e5` (intfloat/e5-large-v2) -- General text
+- `address` (pawan2411/address-emnet) -- Addresses, locations
+- `entity` (themelder/arctic-embed-xs-entity-resolution) -- Company names, entities
 
 Column-model heuristics in `suggest_model_for_column()` auto-assign `address` for columns containing "address", "street", "city", etc., and `entity` for "company", "vendor", "supplier", etc.
+
+## Wizard Flow
+
+Bare `index-numerorum` launches `run_wizard()` in wizard.py:
+1. Scan `input/` for xlsx files (with spinner)
+2. Read file and inspect columns (with spinner)
+3. Prompt for key column (auto-generate if none)
+4. Prompt for embed columns (auto-detect text columns)
+5. Prompt for model per column (auto-suggest domain-specific models)
+6. Load model(s) (with spinner), embed columns (with spinner)
+7. Compute neighbors directly (with spinner)
+8. Write results to `output/` (with spinner)
+9. Post-run menu: run again, quick run, open output, quit
+
+Multi-column embeddings are averaged into a combined vector. The wizard computes neighbors directly via `compute_pairwise` (not through `find_neighbors`) to avoid the `_emb_` prefix issue.
 
 ## zvec Notes
 

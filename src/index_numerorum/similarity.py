@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import numpy as np
 
 
@@ -42,7 +44,7 @@ def pairwise_dot(matrix: np.ndarray) -> np.ndarray:
     return matrix @ matrix.T
 
 
-METRIC_FUNCTIONS: dict[str, tuple[callable, bool]] = {
+METRIC_FUNCTIONS: dict[str, tuple[Callable, bool]] = {
     "cosine": (pairwise_cosine, False),
     "euclidean": (pairwise_euclidean, True),
     "manhattan": (pairwise_manhattan, True),

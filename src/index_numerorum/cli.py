@@ -160,7 +160,7 @@ def embed(
     input: Path = typer.Argument(..., help="Input .xlsx file", exists=True),
     column: list[str] = typer.Option(..., "-c", "--column", help="Column(s) to embed"),
     model: str = typer.Option(DEFAULT_MODEL, "-m", "--model", help="Model shortcut or ID"),
-    output: Path = typer.Option(None, "-o", "--output", help="Output file path"),
+    output: Path | None = typer.Option(None, "-o", "--output", help="Output file path"),
     batch_size: int = typer.Option(DEFAULT_BATCH_SIZE, "--batch-size", help="Batch size"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing embeddings"),
 ):
@@ -236,7 +236,7 @@ def neighbors(
     decimals: int = typer.Option(
         DEFAULT_DECIMALS, "--decimals", "-d", help="Decimal places for scores"
     ),
-    output: Path = typer.Option(None, "-o", "--output", help="Output file path"),
+    output: Path | None = typer.Option(None, "-o", "--output", help="Output file path"),
 ):
     valid_metrics = ["cosine", "euclidean", "manhattan", "dot"]
     if metric not in valid_metrics:
@@ -267,8 +267,14 @@ def neighbors(
         return
     elapsed = _format_elapsed(time.time() - start)
 
-    if threshold is not None and metric == "cosine":
-        result_df = result_df[result_df["score"] >= threshold].reset_index(drop=True)
+    if threshold is not None:
+        if metric != "cosine":
+            console.print(
+                "[yellow]Warning: --threshold only applies to cosine metric. "
+                "Ignoring for other metrics.[/yellow]"
+            )
+        else:
+            result_df = result_df[result_df["score"] >= threshold].reset_index(drop=True)
 
     output_path = output or input.with_name(f"{input.stem}_neighbors.xlsx")
     metadata = {
@@ -408,7 +414,7 @@ def compose_key(
     separator: str = typer.Option(" ", "--separator", help="Separator for concatenate"),
     embed: bool = typer.Option(False, "--embed", help="Also embed the composite key"),
     model: str = typer.Option(DEFAULT_MODEL, "-m", "--model"),
-    output: Path = typer.Option(None, "-o", "--output"),
+    output: Path | None = typer.Option(None, "-o", "--output"),
     force: bool = typer.Option(False, "--force"),
 ):
     valid_strategies = ("concatenate", "average", "weighted-average")
@@ -577,28 +583,17 @@ def _list_models() -> None:
     table.add_column("Best For")
     table.add_column("Cached", justify="center")
 
-    domains = {
-        "mini": "General text",
-        "bge-large": "General text",
-        "nomic": "Long documents",
-        "gte": "General text",
-        "e5": "General text",
-        "address": "Addresses, locations",
-        "entity": "Company names, entities",
-    }
-
     for shortcut, info in MODEL_REGISTRY.items():
         model_folder_name = "models--" + info.id.replace("/", "--")
         cached = cache_dir.exists() and (cache_dir / model_folder_name).exists()
         cached_str = "[green]\u2713[/green]" if cached else "[dim]\u2717[/dim]"
-        domain = domains.get(shortcut, "")
         table.add_row(
             shortcut,
             info.id,
             str(info.dim),
             f"{info.size_mb} MB",
             info.description,
-            domain,
+            info.best_for,
             cached_str,
         )
 
@@ -772,13 +767,6 @@ def doctor():
         f"\n[dim]index-numerorum v{__version__} | "
         f"Default model: {DEFAULT_MODEL} | Default metric: {DEFAULT_METRIC}[/dim]"
     )
-
-
-@app.command(help="Manage persistent vector stores (requires zvec)")
-def store(
-    ctx: typer.Context,
-) -> None:
-    pass
 
 
 store_app = typer.Typer(

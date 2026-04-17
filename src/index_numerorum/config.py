@@ -8,6 +8,7 @@ class ModelInfo:
     size_mb: int
     description: str
     shortcut: str
+    best_for: str = ""
 
 
 MODEL_REGISTRY: dict[str, ModelInfo] = {
@@ -17,6 +18,7 @@ MODEL_REGISTRY: dict[str, ModelInfo] = {
         size_mb=80,
         description="Fast, good quality",
         shortcut="mini",
+        best_for="General text",
     ),
     "bge-large": ModelInfo(
         id="BAAI/bge-large-en-v1.5",
@@ -24,6 +26,7 @@ MODEL_REGISTRY: dict[str, ModelInfo] = {
         size_mb=1300,
         description="Top accuracy",
         shortcut="bge-large",
+        best_for="General text, production",
     ),
     "nomic": ModelInfo(
         id="nomic-ai/nomic-embed-text-v1.5",
@@ -31,6 +34,7 @@ MODEL_REGISTRY: dict[str, ModelInfo] = {
         size_mb=550,
         description="Long context",
         shortcut="nomic",
+        best_for="Long documents",
     ),
     "gte": ModelInfo(
         id="Alibaba-NLP/gte-large-en-v1.5",
@@ -38,6 +42,7 @@ MODEL_REGISTRY: dict[str, ModelInfo] = {
         size_mb=1300,
         description="Cutting-edge",
         shortcut="gte",
+        best_for="General text",
     ),
     "e5": ModelInfo(
         id="intfloat/e5-large-v2",
@@ -45,6 +50,7 @@ MODEL_REGISTRY: dict[str, ModelInfo] = {
         size_mb=1300,
         description="Well-tested",
         shortcut="e5",
+        best_for="General text",
     ),
     "address": ModelInfo(
         id="pawan2411/address-emnet",
@@ -52,6 +58,7 @@ MODEL_REGISTRY: dict[str, ModelInfo] = {
         size_mb=420,
         description="Address matching & dedup",
         shortcut="address",
+        best_for="Addresses, locations",
     ),
     "entity": ModelInfo(
         id="themelder/arctic-embed-xs-entity-resolution",
@@ -59,6 +66,7 @@ MODEL_REGISTRY: dict[str, ModelInfo] = {
         size_mb=90,
         description="Company names, entity resolution",
         shortcut="entity",
+        best_for="Company names, entities",
     ),
 }
 

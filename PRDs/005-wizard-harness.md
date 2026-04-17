@@ -292,7 +292,20 @@ output/
 - Config file for saving preferences
 - Batch mode (multiple files in one run)
 - Export formats beyond xlsx
-- Harness session loop (menu after menu) — wizard runs once then exits
+- Batch-level progress bar for embedding (currently indeterminate spinner)
+
+### Post-execution notes
+
+- Bare `index-numerorum` launches wizard with post-run menu loop (run again / quick run / open output / quit)
+- Multi-model per column: address columns get `address` model, company columns get `entity` model
+- 7 models total (added `address` and `entity` domain-specific models)
+- `build_composite_key` now properly implements average and weighted-average strategies
+- `suggest_model_for_column()` auto-detects column types via keyword matching
+- Never saves embeddings in xlsx -- wizard only outputs neighbor results
+- Scores rounded to 2 decimals everywhere, configurable via `--decimals`
+- `models --remove` flag added to free disk space
+- Neighbor computation done directly via `compute_pairwise` to avoid `_emb_` prefix issue
+- Critique pass fixed 40 issues including 2 critical bugs
 
 ## Acceptance Criteria
 

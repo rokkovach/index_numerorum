@@ -149,7 +149,7 @@ All score-outputting commands accept `--decimals` (default: 2):
 
 ```bash
 index-numerorum neighbors data.xlsx -k "Name" --decimals 4
-index-numerorum store match ./store --threshold 0.90 --decimals 3
+index-numerorum store match ./store --threshold 0.90
 ```
 
 ---

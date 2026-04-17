@@ -4,16 +4,14 @@ import contextlib
 import io
 import logging
 import warnings
+from collections.abc import Callable
 
 import numpy as np
 import pandas as pd
-from rich.console import Console
 from sentence_transformers import SentenceTransformer
 
 from .config import DEFAULT_BATCH_SIZE, EMBEDDING_COLUMN_PREFIX, ModelInfo, resolve_model
 from .io import serialize_embedding
-
-console = Console()
 
 
 def load_model(model_info: ModelInfo) -> SentenceTransformer:
@@ -43,7 +41,7 @@ def generate_embeddings(
     texts: list[str],
     model: SentenceTransformer,
     batch_size: int = 64,
-    progress_callback: callable | None = None,
+    progress_callback: Callable | None = None,
 ) -> np.ndarray:
     if progress_callback is not None:
         progress_callback(0, len(texts))
@@ -67,10 +65,13 @@ def embed_columns(
     batch_size: int = DEFAULT_BATCH_SIZE,
     force: bool = False,
 ) -> pd.DataFrame:
+    from rich.console import Console
+
+    _console = Console()
     for column in columns:
         embedding_col = f"{EMBEDDING_COLUMN_PREFIX}{column}"
         if embedding_col in df.columns and not force:
-            console.print(
+            _console.print(
                 f"[dim]Skipping '{column}' (already embedded). Use --force to overwrite.[/dim]"
             )
             continue

@@ -212,7 +212,7 @@ index-numerorum compare embedded.xlsx \
 
 ```bash
 index-numerorum compose-key staff.xlsx \
-  --columns "First Name" "Last Name" \
+  -c "First Name" -c "Last Name" \
   --strategy concatenate \
   --embed \
   -m mini \
